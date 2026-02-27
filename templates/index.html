@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fee Analysis – DEX Comparison</title>
+    <meta name="description" content="Compare execution costs across perpetual DEXs">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3 3V21H21" stroke="url(#grad)" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                        <path d="M7 14L11 10L15 14L21 8" stroke="url(#grad)" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                        <circle cx="21" cy="8" r="2" fill="#22d3ee" />
+                        <circle cx="15" cy="14" r="2" fill="#8b5cf6" />
+                        <circle cx="11" cy="10" r="2" fill="#22d3ee" />
+                        <circle cx="7" cy="14" r="2" fill="#8b5cf6" />
+                        <defs>
+                            <linearGradient id="grad" x1="3" y1="3" x2="21" y2="21">
+                                <stop offset="0%" stop-color="#22d3ee" />
+                                <stop offset="100%" stop-color="#8b5cf6" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </div>
+                <h1>Fee Analysis</h1>
+            </div>
+            <p class="subtitle">Compare execution costs across perpetual DEXs</p>
+        </header>
+
+        <section class="input-section">
+            <!-- Top Row: Asset + Direction -->
+            <div class="top-row">
+                <div class="input-group asset-group">
+                    <label>Asset</label>
+                    <select id="asset-select">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+
+                <div class="input-group direction-group">
+                    <label>Direction</label>
+                    <div class="type-selector" id="direction-inputs">
+                        <label class="type-btn active">
+                            <input type="radio" name="direction" value="long" checked>
+                            Long
+                        </label>
+                        <label class="type-btn short-btn">
+                            <input type="radio" name="direction" value="short">
+                            Short
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Row: Order Size -->
+            <div class="controls-row">
+                <div class="control-group">
+                    <label>Order Size</label>
+                    <div class="size-buttons">
+                        <button class="size-btn" data-size="10000">$10k</button>
+                        <button class="size-btn" data-size="100000">$100k</button>
+                        <button class="size-btn active" data-size="1000000">$1M</button>
+                        <button class="size-btn" data-size="10000000">$10M</button>
+                    </div>
+                    <div class="custom-size-wrapper">
+                        <input type="text" id="custom-size-input" class="custom-size-input"
+                            placeholder="Custom (e.g. 500k)">
+                        <button id="custom-size-btn" class="custom-size-apply">Apply</button>
+                    </div>
+                </div>
+            </div>
+
+
+            <div id="loading-indicator" class="loading-indicator" style="display: none;">
+                <span class="spinner"></span>
+                <span>Loading...</span>
+            </div>
+        </section>
+
+        <section id="results-section" class="results-section" style="display: none;">
+            <div id="winner-card" class="winner-card">
+                <div class="winner-badge">Best Execution</div>
+                <div class="winner-name" id="winner-name">–</div>
+                <div class="winner-cost" id="winner-cost">–</div>
+                <div class="winner-leverage" id="winner-leverage"
+                    style="display:none; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 12px; padding: 6px 16px; border-radius: 20px; background: rgba(52, 211, 153, 0.1); color: #6ee7b7; border: 1px solid rgba(52, 211, 153, 0.3); box-shadow: 0 4px 12px rgba(52, 211, 153, 0.1);">
+                    Max Lev: –</div>
+            </div>
+
+            <div class="exchange-grid" id="exchange-grid"></div>
+
+            <div class="definitions">
+                <h4>Definitions</h4>
+                <ul style="margin-top: 12px;">
+                    <li><strong>Slippage</strong> – Based on direction while opening</li>
+                    <li><strong>Fees</strong> – Opening + Closing (Taker)</li>
+                    <li><strong>Total Cost</strong> – Slippage + Fees</li>
+                    <li><strong>Updated</strong> – Latest time data was fetched</li>
+                </ul>
+                <p class="disclaimer">
+                    <strong>Disclaimer:</strong> Data is sourced from public orderbooks and APIs. Hyperliquid data uses
+                    4 significant figures due to price bucket accuracy. Results reflect available liquidity at the time
+                    of API call and may not represent actual execution conditions. Use for informational purposes only.
+                </p>
+            </div>
+        </section>
+
+        <footer class="footer">
+            <p>Hyperliquid · Lighter · Aster · Avantis · Ostium · Extended</p>
+        </footer>
+    </div>
+
+    <script>
+        const assetSelect = document.getElementById('asset-select');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const resultsSection = document.getElementById('results-section');
+        const exchangeGrid = document.getElementById('exchange-grid');
+        const winnerCard = document.getElementById('winner-card');
+        const winnerName = document.getElementById('winner-name');
+        const winnerCost = document.getElementById('winner-cost');
+        const sizeButtons = document.querySelectorAll('.size-btn');
+        const typeInputs = document.querySelectorAll('input[name="order-type"]');
+        const directionInputs = document.querySelectorAll('input[name="direction"]');
+
+        let selectedOrderSize = 1000000;
+        let selectedOrderType = 'taker';
+        let selectedDirection = 'long';
+
+        const socket = io();
+
+        socket.on('connect', () => console.log('Connected'));
+
+        socket.on('compare_result', (data) => {
+            loadingIndicator.style.display = 'none';
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            displayResults(data);
+        });
+
+        socket.on('compare_error', (data) => {
+            loadingIndicator.style.display = 'none';
+            alert(data.error || 'Something went wrong');
+        });
+
+        const exchangeConfig = {
+            hyperliquid: {
+                logo: 'https://s2.coinmarketcap.com/static/img/coins/200x200/32196.png',
+                color: '#2dd4bf',
+                name: 'Hyperliquid'
+            },
+            lighter: {
+                logo: 'https://static1.tokenterminal.com//lighter/logo.png?logo_hash=4cc2df01f3dc57643895ca3235a659cabbf2d373',
+                color: '#6366f1',
+                name: 'Lighter'
+            },
+            aster: {
+                logo: 'https://academy-public.coinmarketcap.com/optimized-uploads/9e1ccc8aa77b42c59816e34e53658b49.jpg',
+                color: '#f43f5e',
+                name: 'Aster'
+            },
+            avantis: {
+                logo: 'https://s1.coincarp.com/logo/1/avantis.png?style=200&v=1757294589',
+                color: '#a78bfa',
+                name: 'Avantis'
+            },
+            ostium: {
+                logo: 'https://portal.arbitrum.io/_next/image?url=https%3A%2F%2Fportal-data.arbitrum.io%2Fimages%2Fprojects%2Fostium-logo.webp&w=256&q=75',
+                color: '#60a5fa',
+                name: 'Ostium'
+            },
+            extended: {
+                logo: 'https://img.cryptorank.io/coins/extended1750957204091.png',
+                color: '#34d399',
+                name: 'Extended'
+            }
+        };
+
+        function formatNumber(num, decimals = 2) {
+            return num.toLocaleString('en-US', {
+                minimumFractionDigits: decimals,
+                maximumFractionDigits: decimals
+            });
+        }
+
+        function formatUSD(num) {
+            return '$' + num.toLocaleString('en-US', { maximumFractionDigits: 0 });
+        }
+
+        async function loadAssets() {
+            try {
+                const response = await fetch('/api/assets');
+                const data = await response.json();
+                assetSelect.innerHTML = '<option value="">Select asset</option>';
+                data.assets.forEach(asset => {
+                    const option = document.createElement('option');
+                    option.value = asset.key;
+                    option.textContent = asset.name;
+                    assetSelect.appendChild(option);
+                });
+                // Set default to XAG if available
+                if (data.assets.some(a => a.key === 'XAG')) {
+                    assetSelect.value = 'XAG';
+                    compareSlippage();
+                }
+            } catch (error) {
+                console.error('Failed to load assets:', error);
+                assetSelect.innerHTML = '<option value="">Error loading</option>';
+            }
+        }
+
+        sizeButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                sizeButtons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById('custom-size-input').value = '';
+                selectedOrderSize = parseInt(btn.dataset.size);
+                if (assetSelect.value) compareSlippage();
+            });
+        });
+
+        // Custom size input handler
+        const customSizeInput = document.getElementById('custom-size-input');
+        const customSizeBtn = document.getElementById('custom-size-btn');
+
+        function applyCustomSize() {
+            let input = customSizeInput.value.trim().toLowerCase();
+            if (!input) return;
+
+            // Parse input (supports k, m suffixes)
+            input = input.replace(/[$,]/g, '');
+            let size;
+            if (input.endsWith('k')) {
+                size = parseFloat(input.slice(0, -1)) * 1000;
+            } else if (input.endsWith('m')) {
+                size = parseFloat(input.slice(0, -1)) * 1000000;
+            } else {
+                size = parseFloat(input);
+            }
+
+            if (isNaN(size) || size <= 0) {
+                alert('Please enter a valid amount');
+                return;
+            }
+
+            // Deselect preset buttons
+            sizeButtons.forEach(b => b.classList.remove('active'));
+            selectedOrderSize = size;
+            if (assetSelect.value) compareSlippage();
+        }
+
+        customSizeBtn.addEventListener('click', applyCustomSize);
+        customSizeInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') applyCustomSize();
+        });
+
+        typeInputs.forEach(input => {
+            input.addEventListener('change', (e) => {
+                selectedOrderType = e.target.value;
+                // Update active state
+                typeInputs.forEach(i => i.parentElement.classList.remove('active'));
+                e.target.parentElement.classList.add('active');
+                if (assetSelect.value) compareSlippage();
+            });
+        });
+
+        directionInputs.forEach(input => {
+            input.addEventListener('change', (e) => {
+                selectedDirection = e.target.value;
+                // Update active state
+                directionInputs.forEach(i => i.parentElement.classList.remove('active'));
+                e.target.parentElement.classList.add('active');
+                if (assetSelect.value) compareSlippage();
+            });
+        });
+
+        assetSelect.addEventListener('change', () => {
+            if (assetSelect.value) compareSlippage();
+        });
+
+        function compareSlippage() {
+            const asset = assetSelect.value;
+            if (!asset) return;
+            loadingIndicator.style.display = 'flex';
+            resultsSection.style.display = 'none';
+            socket.emit('compare', {
+                asset: asset,
+                order_size: selectedOrderSize,
+                order_type: selectedOrderType,
+                direction: selectedDirection
+            });
+        }
+
+        function displayResults(data) {
+            resultsSection.style.display = 'block';
+
+            if (data.winner) {
+                const cfg = exchangeConfig[data.winner];
+                winnerName.innerHTML = `<img src="${cfg.logo}" class="winner-logo" alt="">${cfg.name}`;
+                const wd = data[data.winner];
+                const fees = (wd.open_fee_bps || 0) + (wd.close_fee_bps || 0);
+
+                // Explicitly calculate Total Slippage as Sum (to match definitions)
+                const slip1 = wd.buy_slippage_bps || wd.opening_slippage_bps || 0;
+                const slip2 = wd.sell_slippage_bps || wd.closing_slippage_bps || 0;
+                const totalSlippage = slip1 + slip2;
+
+                winnerCost.innerHTML = `
+                    <div style="font-size: 20px; font-weight: 600; margin-bottom: 4px;">${formatNumber(data.winner_cost_bps)} bps</div>
+                    <div style="font-size: 13px; opacity: 0.7;">
+                        Total Slippage ${formatNumber(totalSlippage)} · Fees ${formatNumber(fees)}
+                    </div>
+                    </div>
+                `;
+
+                // Show Max Leverage for Winner
+                const winnerLeverage = document.getElementById('winner-leverage');
+                if (wd.max_leverage) {
+                    winnerLeverage.textContent = `Max Lev: ${wd.max_leverage}x`;
+                    winnerLeverage.style.display = 'inline-block';
+                } else {
+                    winnerLeverage.style.display = 'none';
+                }
+
+            } else {
+                winnerName.textContent = 'No complete fills';
+                winnerCost.textContent = '–';
+                document.getElementById('winner-leverage').style.display = 'none';
+            }
+
+            exchangeGrid.innerHTML = '';
+            const exchanges = ['hyperliquid', 'lighter', 'aster', 'avantis', 'ostium', 'extended'];
+
+            const available = exchanges
+                .filter(ex => data[ex])
+                .sort((a, b) => {
+                    const aFilled = data[a].executed !== 'PARTIAL';
+                    const bFilled = data[b].executed !== 'PARTIAL';
+                    if (aFilled && !bFilled) return -1;
+                    if (!aFilled && bFilled) return 1;
+                    return (data[a].total_cost_bps || 0) - (data[b].total_cost_bps || 0);
+                });
+
+            available.forEach(ex => {
+                const card = createExchangeCard(ex, data[ex], data.winner, data.order_size_usd);
+                exchangeGrid.appendChild(card);
+            });
+
+            resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function createExchangeCard(exchange, exData, winner, orderSize) {
+            const card = document.createElement('div');
+            card.className = 'exchange-card' + (exchange === winner ? ' winner' : '');
+
+            const cfg = exchangeConfig[exchange];
+            const isPartial = exData.executed === 'PARTIAL';
+            const symbol = exData.symbol || '';
+            const isXyz = exData.is_xyz;
+            const symbolHtml = isXyz
+                ? `<span class="symbol-tag xyz">${symbol}</span>`
+                : symbol ? `<span class="symbol-tag">${symbol}</span>` : '';
+
+            const fees = (exData.open_fee_bps || 0) + (exData.close_fee_bps || 0);
+
+            // Always use Opening/Closing terminology
+            const slipLabel1 = 'Opening Slippage';
+            const slipLabel2 = 'Closing Slippage';
+
+            // Helper to get value with fallback
+            const getVal = (...args) => {
+                for (const val of args) {
+                    if (val !== undefined && val !== null) return val;
+                }
+                return 0;
+            };
+
+            // Determine values based on direction mapping
+            // If backend already provided opening/closing (e.g. Avantis or updated backend), use those.
+            // Otherwise map buy/sell based on global selectedDirection.
+            let valOpen, valClose;
+
+            if (exData.opening_slippage_bps !== undefined) {
+                valOpen = exData.opening_slippage_bps;
+                valClose = exData.closing_slippage_bps;
+            } else {
+                // Determine based on direction
+                // Global 'selectedDirection' is available
+                if (selectedDirection === 'short') {
+                    // Short: Opening = Sell, Closing = Buy
+                    valOpen = exData.sell_slippage_bps;
+                    valClose = exData.buy_slippage_bps;
+                } else {
+                    // Long: Opening = Buy, Closing = Sell
+                    valOpen = exData.buy_slippage_bps;
+                    valClose = exData.sell_slippage_bps;
+                }
+            }
+
+            // Fallback to generic slippage_bps if specific buy/sell missing
+            const slipValue1 = getVal(valOpen, exData.slippage_bps);
+            const slipValue2 = getVal(valClose, exData.slippage_bps);
+
+            card.innerHTML = `
+                <div class="card-header" style="border-color: ${cfg.color}">
+                    <img src="${cfg.logo}" class="exchange-logo" alt="">
+                    <div class="exchange-info">
+                        <span class="exchange-name">${cfg.name}</span>
+                        ${symbolHtml}
+                    </div>
+                    ${exData.max_leverage ? `<span class="leverage-tag" style="background: ${cfg.color}20; color: ${cfg.color}; border: 1px solid ${cfg.color}40;">${exData.max_leverage}x</span>` : ''}
+                    ${exchange === winner ? '<span class="winner-tag">Winner</span>' : ''}
+                </div>
+                <div class="card-body">
+                    <div class="metric">
+                        <span class="label">${slipLabel1}</span>
+                        <span class="value">${formatNumber(slipValue1)} bps</span>
+                    </div>
+                    <div class="metric">
+                        <span class="label">${slipLabel2}</span>
+                        <span class="value">${formatNumber(slipValue2)} bps</span>
+                    </div>
+                    <div class="metric">
+                        <span class="label">Fees</span>
+                        <span class="value">${formatNumber(fees)} bps</span>
+                    </div>
+                    <div class="metric total">
+                        <span class="label">Total Cost</span>
+                        <span class="value highlight">${formatNumber(exData.total_cost_bps || 0)} bps</span>
+                    </div>
+                    <div class="metric cost-usd">
+                        <span class="label">USD Cost</span>
+                        <span class="value">${formatUSD(orderSize * (exData.total_cost_bps || 0) / 10000)}</span>
+                    </div>
+                    ${exData.timestamp ? `
+                    <div class="metric" style="margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.04); font-size: 11px; color: rgba(255,255,255,0.4);">
+                        <span>Updated</span>
+                        <span>${new Date(exData.timestamp * 1000).toLocaleTimeString()}</span>
+                    </div>` : ''}
+                    <div class="fill-status ${isPartial ? 'partial' : 'filled'}">
+                        ${isPartial ? `Partial fill${!exData.buy?.filled ? ` – Buy: ${formatUSD(exData.buy?.filled_usd || 0)}/${formatUSD(orderSize)}` : ''
+                    }${!exData.sell?.filled ? ` – Sell: ${formatUSD(exData.sell?.filled_usd || 0)}/${formatUSD(orderSize)}` : ''}` : 'Full fill'}
+                    </div>
+                </div>
+            `;
+
+            return card;
+        }
+
+        loadAssets();
+    </script>
+</body>
+
+</html>
