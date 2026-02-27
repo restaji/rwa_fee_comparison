@@ -102,12 +102,11 @@ class ExtendedAPI:
     # ------------------------------------------------------------------
     # Funding fee
     # ------------------------------------------------------------------
-    def get_funding_fee(self, market: str) -> Dict:
+    def get_holding_fee(self, market: str) -> Dict:
         """
-        Fetch current funding fee for *market* from the public /stats endpoint.
+        Fetch current holding fee for *market* from the public /stats endpoint.
         `fundingRate` is the 1H rate as a plain fraction (e.g. -0.000007).
-          1H pct  = rate
-          24H pct = rate * 24  (floored to 6 dp)
+        Positive = longs pay shorts; negative = shorts pay longs.
         """
         try:
             url  = f"{self.STATS_BASE_URL}/info/markets/{market}/stats"
@@ -116,15 +115,15 @@ class ExtendedAPI:
                 data = resp.json()
                 if data.get('status') == 'OK':
                     rate_1h_raw     = float(data.get('data', {}).get('fundingRate', 0) or 0)
-                    funding_1h_pct  = rate_1h_raw * 100
-                    funding_24h_pct = math.floor(funding_1h_pct * 24 * 1_000_000) / 1_000_000
+                    holding_1h_pct  = rate_1h_raw * 100
+                    holding_24h_pct = math.floor(holding_1h_pct * 24 * 1_000_000) / 1_000_000
                     return {
-                        'funding_fee_1h_pct':  round(funding_1h_pct, 6),
-                        'funding_fee_24h_pct': funding_24h_pct,
+                        'holding_fee_1h_pct':  round(holding_1h_pct, 6),
+                        'holding_fee_24h_pct': holding_24h_pct,
                     }
         except Exception as e:
-            print(f"Extended funding fee error for {market}: {e}")
-        return {'funding_fee_1h_pct': 0.0, 'funding_fee_24h_pct': 0.0}
+            print(f"Extended holding fee error for {market}: {e}")
+        return {'holding_fee_1h_pct': 0.0, 'holding_fee_24h_pct': 0.0}
 
     # ------------------------------------------------------------------
     # Orderbook
@@ -187,7 +186,7 @@ class ExtendedAPI:
             result['fee_bps']       = taker_bps
             result['maker_fee_bps'] = maker_bps
             result['max_leverage']  = self.get_max_leverage(market)
-            funding = self.get_funding_fee(market)
-            result.update(funding)
+            holding = self.get_holding_fee(market)
+            result.update(holding)
 
         return result

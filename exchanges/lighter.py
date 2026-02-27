@@ -98,21 +98,20 @@ class LighterAPI:
         except Exception as e:
             print(f"Error fetching Lighter funding rates: {e}")
 
-    def get_funding_fee(self, market_id: int) -> Dict:
+    def get_holding_fee(self, market_id: int) -> Dict:
         """
-        Return 1H and 24H funding fee in bps for *market_id*.
-        The /funding-rates API returns rates as a fraction (e.g. 0.0001 = 0.01%).
-        bps = rate * 100.  24H = 1H * 24, floored to 2 dp.
-        Note: Lighter funding is hourly so the returned rate is already a 1H rate.
+        Return 1H and 24H holding fee for *market_id* as % of notional.
+        The /funding-rates API returns an 8H rate as a fraction (e.g. 0.0001 = 0.01%).
+        Positive = longs pay shorts; negative = shorts pay longs.
         """
         self._fetch_funding_rates()
-        rate_8h_raw    = self.funding_cache.get(market_id, 0.0)
-        funding_8h_pct  = rate_8h_raw * 100
-        funding_1h_pct  = funding_8h_pct / 8
-        funding_24h_pct = math.floor(funding_8h_pct * 3 * 1_000_000) / 1_000_000
+        rate_8h_raw     = self.funding_cache.get(market_id, 0.0)
+        holding_8h_pct  = rate_8h_raw * 100
+        holding_1h_pct  = holding_8h_pct / 8
+        holding_24h_pct = math.floor(holding_8h_pct * 3 * 1_000_000) / 1_000_000
         return {
-            'funding_fee_1h_pct':  round(funding_1h_pct, 6),
-            'funding_fee_24h_pct': funding_24h_pct,
+            'holding_fee_1h_pct':  round(holding_1h_pct, 6),
+            'holding_fee_24h_pct': holding_24h_pct,
         }
 
     # ------------------------------------------------------------------
@@ -177,7 +176,7 @@ class LighterAPI:
             result['fee_bps']        = taker_fee_bps
             result['maker_fee_bps']  = maker_fee_bps
             result['max_leverage']   = self.get_max_leverage(market_id)
-            funding                  = self.get_funding_fee(market_id)
-            result.update(funding)
+            holding                  = self.get_holding_fee(market_id)
+            result.update(holding)
 
         return result

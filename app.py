@@ -8,6 +8,10 @@ Run with:  python app.py
 from __future__ import annotations
 
 import eventlet
+import sys
+if sys.platform == 'darwin':
+    import eventlet.hubs
+    eventlet.hubs.use_hub('poll')  # kqueue is broken on macOS Python 3.9+
 eventlet.monkey_patch()
 
 import os
@@ -155,4 +159,4 @@ if __name__ == '__main__':
     print("WebSocket support enabled")
     print("=" * 60 + "\n")
 
-    socketio.run(app, host="0.0.0.0", debug=debug, port=port)
+    socketio.run(app, host="0.0.0.0", debug=debug, port=port, use_reloader=False)

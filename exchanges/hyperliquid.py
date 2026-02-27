@@ -172,11 +172,11 @@ class HyperliquidAPI:
         upper = symbol.upper().replace("XYZ:", "")
         return self._symbol_aliases.get(upper, upper)
 
-    def get_funding_fee(self, symbol: str) -> Dict:
+    def get_holding_fee(self, symbol: str) -> Dict:
         """
-        Return 1H and 24H funding fee in bps for *symbol*.
+        Return 1H and 24H holding fee for *symbol* as % of notional.
         `funding` from the API is a 1H rate as a plain fraction (e.g. 0.0000142).
-        bps = fraction * 100.  24H = 1H * 24, floored to 2 dp.
+        Positive = longs pay shorts; negative = shorts pay longs.
         """
         self._fetch_metadata()
         xyz_name = self._resolve_xyz_name(symbol)
@@ -185,11 +185,11 @@ class HyperliquidAPI:
             or self.funding_cache.get(xyz_name)
             or 0.0
         )
-        funding_1h_pct  = funding_1h_raw * 100
-        funding_24h_pct = math.floor(funding_1h_pct * 24 * 1_000_000) / 1_000_000
+        holding_1h_pct  = funding_1h_raw * 100
+        holding_24h_pct = math.floor(holding_1h_pct * 24 * 1_000_000) / 1_000_000
         return {
-            'funding_fee_1h_pct':  round(funding_1h_pct, 6),
-            'funding_fee_24h_pct': funding_24h_pct,
+            'holding_fee_1h_pct':  round(holding_1h_pct, 6),
+            'holding_fee_24h_pct': holding_24h_pct,
         }
 
     # ------------------------------------------------------------------
@@ -400,7 +400,7 @@ class HyperliquidAPI:
             final_result['symbol']       = display_symbol
             final_result['max_leverage'] = self.get_max_leverage(symbol)
             final_result['true_mid']     = true_mid
-            funding                      = self.get_funding_fee(symbol)
-            final_result.update(funding)
+            holding                      = self.get_holding_fee(symbol)
+            final_result.update(holding)
 
         return final_result

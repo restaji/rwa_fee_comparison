@@ -514,11 +514,11 @@ class OstiumAPI:
             'rollover_short_rate_24h':   rollover_short_24h,  # % per 24 h for shorts
             'rollover_long_rate_1h':     rollover_long_24h  / 24,
             'rollover_short_rate_1h':    rollover_short_24h / 24,
-            # Funding fee as plain percentage (% of notional)
-            'funding_fee_1h_long_pct':   round(rollover_long_24h  / 24, 6),
-            'funding_fee_1h_short_pct':  round(rollover_short_24h / 24, 6),
-            'funding_fee_24h_long_pct':  math.floor(rollover_long_24h  * 1_000_000) / 1_000_000,
-            'funding_fee_24h_short_pct': math.floor(rollover_short_24h * 1_000_000) / 1_000_000,
+            # Holding fee as plain percentage (% of notional)
+            'holding_fee_1h_long_pct':   round(rollover_long_24h  / 24, 6),
+            'holding_fee_1h_short_pct':  round(rollover_short_24h / 24, 6),
+            'holding_fee_24h_long_pct':  math.floor(rollover_long_24h  * 1_000_000) / 1_000_000,
+            'holding_fee_24h_short_pct': math.floor(rollover_short_24h * 1_000_000) / 1_000_000,
             'buy':  {'avg_price': buy_exec_price,  'slippage_bps': buy_spread_bps,  'levels_used': 1},
             'sell': {'avg_price': sell_exec_price, 'slippage_bps': sell_spread_bps, 'levels_used': 1},
         }

@@ -115,11 +115,11 @@ class AvantisAPI:
         spread_bps    = self._get_spread(pair_idx, pair_info, position_size, is_long=is_long)
         total_cost    = spread_bps + open_fee_bps + close_fee_bps
 
-        margin_fee           = pair_info.get("marginFee", {})
-        funding_1h_long_pct   = margin_fee.get("long",  0)
-        funding_1h_short_pct  = margin_fee.get("short", 0)
-        funding_24h_long_pct  = math.floor(funding_1h_long_pct  * 24 * 1_000_000) / 1_000_000
-        funding_24h_short_pct = math.floor(funding_1h_short_pct * 24 * 1_000_000) / 1_000_000
+        margin_fee            = pair_info.get("marginFee", {})
+        holding_1h_long_pct   = margin_fee.get("long",  0)
+        holding_1h_short_pct  = margin_fee.get("short", 0)
+        holding_24h_long_pct  = math.floor(holding_1h_long_pct  * 24 * 1_000_000) / 1_000_000
+        holding_24h_short_pct = math.floor(holding_1h_short_pct * 24 * 1_000_000) / 1_000_000
 
         leverages      = pair_info.get("leverages", {})
         storage_params = pair_info.get("storagePairParams", {})
@@ -146,9 +146,9 @@ class AvantisAPI:
             'max_wallet_oi':        max_wallet_oi,
             'buy':  {'filled': filled, 'filled_usd': filled_usd, 'unfilled_usd': unfilled_usd, 'levels_used': 1, 'slippage_bps': spread_bps},
             'sell': {'filled': filled, 'filled_usd': filled_usd, 'unfilled_usd': unfilled_usd, 'levels_used': 1, 'slippage_bps': 0.0},
-            'funding_fee_1h_long_pct':   round(funding_1h_long_pct,   6),
-            'funding_fee_1h_short_pct':  round(funding_1h_short_pct,  6),
-            'funding_fee_24h_long_pct':  funding_24h_long_pct,
-            'funding_fee_24h_short_pct': funding_24h_short_pct,
+            'holding_fee_1h_long_pct':   round(holding_1h_long_pct,   6),
+            'holding_fee_1h_short_pct':  round(holding_1h_short_pct,  6),
+            'holding_fee_24h_long_pct':  holding_24h_long_pct,
+            'holding_fee_24h_short_pct': holding_24h_short_pct,
             'timestamp':                 time.time(),
         }

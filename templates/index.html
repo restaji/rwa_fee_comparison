@@ -106,8 +106,9 @@
                 <h4>Definitions</h4>
                 <ul style="margin-top: 12px;">
                     <li><strong>Slippage</strong> – Based on direction while opening</li>
-                    <li><strong>Fees</strong> – Opening + Closing (Taker)</li>
-                    <li><strong>Total Cost</strong> – Slippage + Fees</li>
+                    <li><strong>Fees</strong> – Opening + Closing (Taker) + 24H Holding Fee</li>
+                    <li><strong>Holding Fee (24H)</strong> – Projected 24H cost/rebate for your direction. Red = you pay, Green = you receive</li>
+                    <li><strong>Total Cost</strong> – Slippage + Fees (holding fee included)</li>
                     <li><strong>Updated</strong> – Latest time data was fetched</li>
                 </ul>
                 <p class="disclaimer">
@@ -199,6 +200,34 @@
 
         function formatUSD(num) {
             return '$' + num.toLocaleString('en-US', { maximumFractionDigits: 0 });
+        }
+
+        /**
+         * Returns the 24H holding fee in bps for a given exchange result and direction.
+         *
+         * For exchanges with a single rate (HL, Lighter, Aster, Extended):
+         *   positive rate = longs pay → long cost increases, short cost decreases
+         *   Long  adjustment: +rate_bps
+         *   Short adjustment: -rate_bps
+         *
+         * For exchanges with direction-specific rates (Avantis, Ostium):
+         *   rates are already per-side, so always add (positive = that side pays).
+         */
+        function getHoldingFeeBps(exData, direction) {
+            const pctToBps = pct => pct * 100;
+
+            // Direction-specific rates (Avantis, Ostium)
+            if (exData.holding_fee_24h_long_pct !== undefined ||
+                exData.holding_fee_24h_short_pct !== undefined) {
+                const pct = direction === 'long'
+                    ? (exData.holding_fee_24h_long_pct  ?? 0)
+                    : (exData.holding_fee_24h_short_pct ?? 0);
+                return pctToBps(pct);
+            }
+
+            // Single rate (HL, Lighter, Aster, Extended)
+            const rate = exData.holding_fee_24h_pct ?? 0;
+            return direction === 'long' ? pctToBps(rate) : -pctToBps(rate);
         }
 
         async function loadAssets() {
@@ -312,18 +341,19 @@
                 const cfg = exchangeConfig[data.winner];
                 winnerName.innerHTML = `<img src="${cfg.logo}" class="winner-logo" alt="">${cfg.name}`;
                 const wd = data[data.winner];
-                const fees = (wd.open_fee_bps || 0) + (wd.close_fee_bps || 0);
+                const holdingFeeBps = getHoldingFeeBps(wd, selectedDirection);
+                const baseFees = (wd.open_fee_bps || 0) + (wd.close_fee_bps || 0);
+                const fees = baseFees + holdingFeeBps;
+                const adjustedWinnerCost = data.winner_cost_bps + holdingFeeBps;
 
-                // Explicitly calculate Total Slippage as Sum (to match definitions)
                 const slip1 = wd.buy_slippage_bps || wd.opening_slippage_bps || 0;
                 const slip2 = wd.sell_slippage_bps || wd.closing_slippage_bps || 0;
                 const totalSlippage = slip1 + slip2;
 
                 winnerCost.innerHTML = `
-                    <div style="font-size: 20px; font-weight: 600; margin-bottom: 4px;">${formatNumber(data.winner_cost_bps)} bps</div>
+                    <div style="font-size: 20px; font-weight: 600; margin-bottom: 4px;">${formatNumber(adjustedWinnerCost)} bps</div>
                     <div style="font-size: 13px; opacity: 0.7;">
                         Total Slippage ${formatNumber(totalSlippage)} · Fees ${formatNumber(fees)}
-                    </div>
                     </div>
                 `;
 
@@ -375,7 +405,10 @@
                 ? `<span class="symbol-tag xyz">${symbol}</span>`
                 : symbol ? `<span class="symbol-tag">${symbol}</span>` : '';
 
-            const fees = (exData.open_fee_bps || 0) + (exData.close_fee_bps || 0);
+            const holdingFeeBps = getHoldingFeeBps(exData, selectedDirection);
+            const baseFees = (exData.open_fee_bps || 0) + (exData.close_fee_bps || 0);
+            const fees = baseFees + holdingFeeBps;
+            const adjustedTotalCost = (exData.total_cost_bps || 0) + holdingFeeBps;
 
             // Always use Opening/Closing terminology
             const slipLabel1 = 'Opening Slippage';
@@ -438,13 +471,17 @@
                         <span class="label">Fees</span>
                         <span class="value">${formatNumber(fees)} bps</span>
                     </div>
+                    <div class="metric holding-fee">
+                        <span class="label">Holding Fee (24H)</span>
+                        <span class="value ${holdingFeeBps >= 0 ? 'holding-positive' : 'holding-negative'}">${holdingFeeBps >= 0 ? '+' : ''}${formatNumber(holdingFeeBps)} bps</span>
+                    </div>
                     <div class="metric total">
                         <span class="label">Total Cost</span>
-                        <span class="value highlight">${formatNumber(exData.total_cost_bps || 0)} bps</span>
+                        <span class="value highlight">${formatNumber(adjustedTotalCost)} bps</span>
                     </div>
                     <div class="metric cost-usd">
                         <span class="label">USD Cost</span>
-                        <span class="value">${formatUSD(orderSize * (exData.total_cost_bps || 0) / 10000)}</span>
+                        <span class="value">${formatUSD(orderSize * adjustedTotalCost / 10000)}</span>
                     </div>
                     ${exData.timestamp ? `
                     <div class="metric" style="margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.04); font-size: 11px; color: rgba(255,255,255,0.4);">

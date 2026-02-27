@@ -936,3 +936,18 @@ body::after {
     flex: 2;
     /* 40% approx */
 }
+
+/* Holding fee row */
+.metric.holding-fee {
+    padding-top: 6px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+    margin-top: 2px;
+}
+
+.holding-positive {
+    color: #f87171;  /* red — you're paying */
+}
+
+.holding-negative {
+    color: #34d399;  /* green — you're receiving */
+}
