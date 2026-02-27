@@ -21,7 +21,6 @@ class ExtendedAPI:
     """Client for Extended Exchange (Starknet) orderbook data."""
 
     BASE_URL       = "https://api.starknet.extended.exchange/api/v1"
-    STATS_BASE_URL = "https://app.extended.exchange/api/v1"
 
     def __init__(self):
         self.API_KEY = os.getenv("EXTENDED_API_KEY", "")
@@ -109,7 +108,7 @@ class ExtendedAPI:
         Positive = longs pay shorts; negative = shorts pay longs.
         """
         try:
-            url  = f"{self.STATS_BASE_URL}/info/markets/{market}/stats"
+            url  = f"{self.BASE_URL}/info/markets/{market}/stats"
             resp = requests.get(url, timeout=15)
             if resp.status_code == 200:
                 data = resp.json()
