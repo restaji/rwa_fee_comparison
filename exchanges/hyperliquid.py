@@ -329,8 +329,6 @@ class HyperliquidAPI:
 
     def get_optimal_execution(self, symbol: str, order_size_usd: float) -> Optional[Dict]:
         """
-        Cascade through orderbook precisions to find the best fill.
-
         Flow:
           1. Always fetch default (max) precision first → pin true mid price.
           2. Try to fill the order at default precision.
