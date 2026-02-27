@@ -7,6 +7,9 @@ Run with:  python app.py
 """
 from __future__ import annotations
 
+import eventlet
+eventlet.monkey_patch()
+
 import os
 
 from dotenv import load_dotenv
@@ -24,7 +27,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 app      = Flask(__name__)
 CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # Initialize comparator (loads all exchange caches on startup)
 comparator = FeeComparator()
