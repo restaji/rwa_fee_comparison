@@ -86,3 +86,4 @@ logs/
 *.bak
 *.tmp
 pyrightconfig.json
+rwa-remote-temp/
