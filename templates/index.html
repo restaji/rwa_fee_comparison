@@ -106,9 +106,9 @@
                 <h4>Definitions</h4>
                 <ul style="margin-top: 12px;">
                     <li><strong>Slippage</strong> – Based on direction while opening</li>
-                    <li><strong>Fees</strong> – Opening + Closing (Taker) + 24H Holding Fee</li>
+                    <li><strong>Fees</strong> – Opening + Closing (Taker)</li>
                     <li><strong>Holding Fee (24H)</strong> – Projected 24H cost/rebate for your direction. Red = you pay, Green = you receive</li>
-                    <li><strong>Total Cost</strong> – Slippage + Fees (holding fee included)</li>
+                    <li><strong>Total Cost</strong> – Slippage + Fees + Holding Fee (24H)</li>
                     <li><strong>Updated</strong> – Latest time data was fetched</li>
                 </ul>
                 <p class="disclaimer">
@@ -342,8 +342,7 @@
                 winnerName.innerHTML = `<img src="${cfg.logo}" class="winner-logo" alt="">${cfg.name}`;
                 const wd = data[data.winner];
                 const holdingFeeBps = getHoldingFeeBps(wd, selectedDirection);
-                const baseFees = (wd.open_fee_bps || 0) + (wd.close_fee_bps || 0);
-                const fees = baseFees + holdingFeeBps;
+                const fees = (wd.open_fee_bps || 0) + (wd.close_fee_bps || 0);
                 const adjustedWinnerCost = data.winner_cost_bps + holdingFeeBps;
 
                 const slip1 = wd.buy_slippage_bps || wd.opening_slippage_bps || 0;
@@ -406,8 +405,7 @@
                 : symbol ? `<span class="symbol-tag">${symbol}</span>` : '';
 
             const holdingFeeBps = getHoldingFeeBps(exData, selectedDirection);
-            const baseFees = (exData.open_fee_bps || 0) + (exData.close_fee_bps || 0);
-            const fees = baseFees + holdingFeeBps;
+            const fees = (exData.open_fee_bps || 0) + (exData.close_fee_bps || 0);
             const adjustedTotalCost = (exData.total_cost_bps || 0) + holdingFeeBps;
 
             // Always use Opening/Closing terminology
