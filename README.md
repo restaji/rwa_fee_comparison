@@ -1,153 +1,166 @@
-# RWA Fee Comparison — Backend Documentation
+# RWA Fee Comparison — Backend
 
-A multi-exchange slippage & fee comparison API for Real-World Assets (RWA) perp DEXs.
+Multi-exchange slippage & fee comparison API for Real-World Asset (RWA) perp DEXs.
+
+---
 
 ## Supported Assets
 
-| Key | Name | Class |
+| Key | Pair | Class |
 |---|---|---|
-| `XAU` | XAU/USD | Commodity |
-| `XAG` | XAG/USD | Commodity |
-| `EURUSD` | EUR/USD | Forex |
-| `GBPUSD` | GBP/USD | Forex |
-| `USDJPY` | USD/JPY | Forex |
+| `XAU` / `XAG` | XAU/USD · XAG/USD | Commodity |
+| `EURUSD` / `GBPUSD` / `USDJPY` | EUR · GBP · JPY | Forex |
 | `AAPL` `MSFT` `GOOG` `AMZN` `META` `NVDA` `TSLA` `COIN` | MAG7 + COIN | Stock |
-| `SPY` `QQQ` | Index | Index |
+| `SPY` / `QQQ` | — | Index |
 
-## Supported Exchanges
+---
 
-| Exchange | Type | Orderbook |
+## Exchange Overview
+
+| Exchange | Chain | Book Type |
 |---|---|---|
-| **Hyperliquid** | Perp DEX (Arbitrum L1) | Real L2 book (`xyz:` dex) |
-| **Lighter** | Perp DEX | Real L2 book |
-| **Aster** | Perp DEX | Real L2 book |
-| **Extended** | Perp DEX (Starknet) | Real L2 book |
-| **Avantis** | Oracle-based Perp DEX | Synthetic (no traditional book) |
-| **Ostium** | Oracle-based Perp DEX | Oracle price + dynamic spread |
+| **Hyperliquid** | Arbitrum L1 (`xyz` dex) | Real L2 orderbook |
+| **Lighter** | zkSync | Real L2 orderbook |
+| **Aster** | BSC/CEX-style | Real L2 orderbook |
+| **Extended** | Starknet | Real L2 orderbook |
+| **Avantis** | Base | Oracle + dynamic spread |
+| **Ostium** | Arbitrum | Oracle + dynamic spread |
 
 ---
 
 ## Calculation Processes
 
-All values are expressed in **basis points (bps)** unless stated otherwise.  
-`1 bps = 0.01%`
+All costs in **basis points (bps)** — `1 bps = 0.01%`.
 
 ---
 
-### 1. Spread
+### 1. Spread / Slippage
 
-The spread measures how much the execution price deviates from the true mid price.
+#### Orderbook Exchanges (Hyperliquid, Lighter, Aster, Extended)
 
-#### Orderbook-Based Exchanges (Hyperliquid, Lighter, Aster, Extended)
-
-The spread is calculated by **walking the orderbook** — consuming levels until the full order size is filled.
+All four use the same shared logic — walk the book to fill the order:
 
 ```
 mid_price           = (best_bid + best_ask) / 2
-avg_execution_price = total_cost_filled / total_qty_filled   ← walk the book
-slippage_bps        = abs((avg_execution_price - mid_price) / mid_price) × 10,000
+avg_fill_price      = total_cost_filled / total_qty_filled
+slippage_bps        = abs((avg_fill_price - mid_price) / mid_price) × 10,000
 ```
 
-- **Buy side**: walks the ask levels (lowest price first)
-- **Sell side**: walks the bid levels (highest price first)
-- The **average** of both sides is reported as `slippage_bps`
+Buy side walks asks (lowest first); sell side walks bids (highest first). Average of both = `slippage_bps`.
+
+---
+
+#### Lighter — Orderbook Details
+
+| | |
+|---|---|
+| Endpoint | `GET /orderBookOrders?market_id=<id>&limit=250` |
+| Qty field | `remaining_base_amount` |
+| Fees | `GET /orderBookDetails` → `taker_fee × 100` → bps |
+| Max leverage | `10000 / min_initial_margin_fraction` |
+| Funding | 8H rate `/funding-rates` → ÷8 for 1H, ×3 for 24H |
+
+#### Aster — Orderbook Details
+
+| | |
+|---|---|
+| Endpoint | `GET /fapi/v1/depth?symbol=<sym>&limit=1000` |
+| Format | `bids[][0]` = price, `bids[][1]` = qty |
+| Fees | Authenticated `/commissionRate` (`ASTER_API_KEY` + `ASTER_SECRET_KEY`) |
+| Fee convention | `takerCommissionRate × 10000 × 2` bps |
+| Max leverage | Max key in `leverageOiRemainingMap` |
+| Funding | 4H rate `/real-time-funding-rate` → ÷4 for 1H, ×6 for 24H |
+
+#### Extended (Starknet) — Orderbook Details
+
+| | |
+|---|---|
+| Endpoint | `GET /api/v1/info/markets/<market>/orderbook` |
+| Fields | `bid[].price` + `bid[].qty` / `ask[].price` + `ask[].qty` |
+| Fees | `GET /api/v1/user/fees?market=<m>` → `takerFeeRate × 10000` bps (`EXTENDED_API_KEY`) |
+| Max leverage | `tradingConfig.maxLeverage` from `/info/markets` |
+| Funding | 1H rate from `/info/markets/<m>/stats` → `fundingRate × 100` |
 
 #### Hyperliquid — Precision Cascade
 
-Hyperliquid's `xyz` dex uses a two-step precision strategy to handle thin orderbooks (especially for RWA forex):
-
-1. **Default precision** (no `nSigFigs`) — most granular, best prices
-2. **`nSigFigs=4`** — aggregated levels, much deeper liquidity
-
-If the default book has < $1M of visible depth on either side, the API automatically falls back to `nSigFigs=4` and preserves the **true best bid/ask** from the granular book for an accurate mid-price and spread anchor.
+Hyperliquid `xyz` has thin RWA orderbooks; uses a 3-step cascade:
 
 ```
-If bids_usd < 1,000,000 OR asks_usd < 1,000,000:
-    → Fetch nSigFigs=4 book
-    → store true_best_bid / true_best_ask from the granular book
-    → use aggregated book for slippage walk
+Step 1  Fetch default (max) precision book
+        → pin true_mid = (best_bid + best_ask) / 2
+
+Step 2  Try to fill at default precision
+        → Fully filled? Done ✅
+
+Step 3  Fallback to nSigFigs=4 (aggregated, deeper)
+        → Inject true_mid from Step 1 as slippage anchor
+        → Still not filled? Report as PARTIAL 🟡  (never hidden)
 ```
 
-#### Ostium — Dynamic Spread (Pade Approximation)
+`true_mid` is always from the granular book to prevent distortion from aggregated bucket widths.
 
-Ostium is oracle-based. Its spread is **not** from a real orderbook but is calculated using a Solidity-compatible formula:
+---
+
+#### Ostium — Dynamic Spread
+
+Oracle-based. No real orderbook; spread computed via Solidity-compatible Pade approximation:
 
 ```
-spread_bps = (market_spread / 2) + (decayed_volume + trade_size / 2) × priceImpactK / 1e27 × 10,000
+spread_bps = (market_spread / 2) + (decayed_OI + trade_size / 2) × priceImpactK / 1e27 × 10,000
 ```
 
-- `market_spread` = the raw `(ask - bid) / mid` from the oracle price feed
-- `decayed_volume` = existing open interest decayed using a **Pade approximation** to simulate natural volume decay over time
-- `priceImpactK` = per-pair constant from the pairs API
-- Computed separately for **buy** (open long) and **sell** (close long), then averaged
+- `market_spread` = `(ask − bid) / mid` from oracle feed
+- `decayed_OI` = existing OI decayed with Pade approximation over elapsed time
+- `priceImpactK` = per-pair constant (from `pairs` API)
+- Computed separately for buy & sell, then averaged
 
-#### Avantis — Dynamic Spread (Risk API)
+#### Avantis — Dynamic Spread
 
-Avantis queries a dedicated risk API that returns a real-time `spreadP` value per pair and direction:
+Queries a dedicated risk API per direction:
 
 ```
 GET https://risk-api.avantisfi.com/spread/dynamic
-    ?pairIndex=<id>&positionSizeUsdc=<size_in_wei>&isLong=true&isPnl=false
+    ?pairIndex=<id>&positionSizeUsdc=<size_wei>&isLong=true&isPnl=false
 
 spread_bps = spreadP / 1e10 × 100
 ```
 
-If dynamic spread is not available for the pair, it falls back to the static `spreadP` from the socket API.
+Falls back to static `spreadP` from socket API if dynamic is unavailable.
 
 ---
 
-### 2. Trading Fees (Open & Close Fee)
-
-All fees are in **bps**.
+### 2. Trading Fees
 
 #### Hyperliquid
 
-Fees are computed dynamically from three public API calls — **no hardcoded values**:
-
-| API | Purpose |
-|---|---|
-| `perpDexs` | `deployerFeeScale` for the `xyz` dex |
-| `userFees` (zero address) | `userCrossRate` (taker) and `userAddRate` (maker) |
-| `metaAndAssetCtxs` | Per-asset `growthMode` flag |
+Three public API calls, no hardcoded values:
 
 ```
-scale_if_hip3  = (deployerFeeScale + 1)    if deployerFeeScale < 1
-               = (deployerFeeScale × 2)    if deployerFeeScale ≥ 1
+scale_if_hip3 = deployerFeeScale + 1       (if deployerFeeScale < 1)
+              = deployerFeeScale × 2       (if deployerFeeScale ≥ 1)
 
-growth_scale   = 0.1    if growthMode == "enabled"   ← 90% discount
-               = 1.0    otherwise
+growth_scale  = 0.1   (growthMode enabled — 90% discount)
+              = 1.0   (growthMode disabled)
 
-taker_fee_bps  = userCrossRate × 100 × scale_if_hip3 × growth_scale × 100
-maker_fee_bps  = userAddRate   × 100 × scale_if_hip3 × growth_scale × 100
+taker_fee_bps = userCrossRate × 100 × scale_if_hip3 × growth_scale × 100
+maker_fee_bps = userAddRate   × 100 × scale_if_hip3 × growth_scale × 100
 ```
-
-#### Lighter, Aster, Extended
-
-Fees are fetched dynamically from each exchange's public API at request time, cached for 5 minutes.
 
 #### Ostium
 
-Fee is loaded from the Ostium `pairs` API (`takerFeeP` / `makerFeeP`):
-
-```
-taker_fee_bps = takerFeeP / 10,000
-```
-
-Season overrides are applied if an active season has a `newFee` for the asset (from the `seasons/current` API).
+From `pairs` API (`takerFeeP / 10,000`). Season overrides applied from `seasons/current` if a `newFee` exists for the asset.
 
 #### Avantis — Skew-Adjusted Opening Fee
 
-The opening fee is not flat — it depends on the **open interest imbalance** between longs and shorts:
+Opening fee varies by long/short OI imbalance:
 
 ```
-For a long:
-    open_interest_pct  = floor(100 × short_OI / (long_OI + position_size + short_OI))
-    pct_index          = min(floor(open_interest_pct / 10), len(skewEqParams) - 1)
-    param1, param2     = skewEqParams[pct_index]
-    open_fee_bps       = ((param1 × open_interest_pct + param2) / 10,000) × 100
+open_interest_pct = floor(100 × opposite_OI / (own_OI + position_size + opposite_OI))
+pct_index         = min(floor(open_interest_pct / 10), len(skewEqParams) − 1)
+open_fee_bps      = ((param1 × open_interest_pct + param2) / 10,000) × 100
 ```
 
-The closing fee is a flat rate from `closeFeeP × 100`.
+Closing fee is flat: `closeFeeP × 100`.
 
 ---
 
@@ -155,68 +168,40 @@ The closing fee is a flat rate from `closeFeeP × 100`.
 
 | Exchange | Source |
 |---|---|
-| **Hyperliquid** | `metaAndAssetCtxs` API (`maxLeverage` per asset) |
-| **Ostium** | `pairs` API (`maxLeverage`, `makerMaxLeverage`, or group `maxLeverage`) — divided by 100 |
-| **Avantis** | `pairInfos[pairIndex].leverages.maxLeverage` from socket API |
-| **Lighter/Aster/Extended** | Exchange-specific market metadata APIs |
+| Hyperliquid | `metaAndAssetCtxs` → `maxLeverage` per asset |
+| Lighter | `10000 / min_initial_margin_fraction` |
+| Aster | Max key in `leverageOiRemainingMap` |
+| Extended | `tradingConfig.maxLeverage` from `/info/markets` |
+| Ostium | `pairs` API → `maxLeverage` ÷ 100 |
+| Avantis | `pairInfos[idx].leverages.maxLeverage` |
 
 ---
 
-### 4. Margin / Funding Fee (Rollover)
+### 4. Funding / Margin Fee
 
-The holding cost for keeping a position open.
+| Exchange | Period | Formula |
+|---|---|---|
+| Hyperliquid | 1H | `funding_raw × 100` → pct; 24H = 1H × 24 |
+| Lighter | 8H | `rate × 100` = 8H pct; 1H = ÷8; 24H = ×3 |
+| Aster | 4H | `rate × 100` = 4H pct; 1H = ÷4; 24H = ×6 |
+| Extended | 1H | `fundingRate × 100`; 24H = 1H × 24 |
+| Ostium | Per-block | `rolloverFeePerBlock × blocks_per_day / 1e18 × 100` (live Arbitrum RPC) |
+| Avantis | 1H | `marginFee.long / .short` direct from socket API; 24H = 1H × 24 |
 
-#### Hyperliquid
-
-The 1H funding rate is fetched via `metaAndAssetCtxs` (`funding` field per asset):
-
-```
-funding_1h_pct  = funding_raw × 100          ← fraction → percentage
-funding_24h_pct = floor(funding_1h_pct × 24 × 1,000,000) / 1,000,000
-```
-
-Positive = longs pay; Negative = longs receive.
-
-#### Ostium — Rollover Fee (Arbitrum Block-based)
-
-The rollover fee is accrued per Arbitrum block, using a live block rate fetched from the Arbitrum public RPC:
-
-```
-blocks_per_day = (current_block - ref_block) / (current_time - ref_funding_time) × 86,400
-
-long_rate_pct_24h  = rolloverFeePerBlock × blocks_per_day / 1e18 × 100
-short_rate_pct_24h = −long_rate_pct_24h   (clamped to 0 if negativeRollover not allowed)
-```
-
-- `rolloverFeePerBlock` — per-pair constant from the pairs API (raw 18-decimal integer)
-- Falls back to `345,600 blocks/day` (~4 blk/s) if the RPC is unavailable
-
-#### Avantis — Margin Fee
-
-Comes directly from the `marginFee` field in the socket API response:
-
-```
-marginFee.long  → funding_1h_long_pct   (% of notional per hour)
-marginFee.short → funding_1h_short_pct
-
-funding_24h_long_pct  = floor(funding_1h_long_pct  × 24 × 1,000,000) / 1,000,000
-funding_24h_short_pct = floor(funding_1h_short_pct × 24 × 1,000,000) / 1,000,000
-```
+Positive = position pays; Negative = position receives.
 
 ---
 
 ### 5. Total Cost & Winner
 
-The final total cost is the sum of all components for a round-trip trade:
-
 ```
-effective_spread_bps = slippage_bps × 2         ← for orderbook exchanges (open + close)
-                     = slippage_bps              ← for Avantis (spread already one-way)
+effective_spread = slippage_bps × 2        ← orderbook exchanges (round-trip)
+                 = slippage_bps            ← Avantis (one-way spread quoted)
 
-total_cost_bps = effective_spread_bps + open_fee_bps + close_fee_bps
+total_cost_bps   = effective_spread + open_fee_bps + close_fee_bps
 ```
 
-The **winner** is the exchange with the **lowest** `total_cost_bps` for a fully-filled order.
+**Winner** = exchange with lowest `total_cost_bps` for a fully-filled order.
 
 ---
 
@@ -224,14 +209,13 @@ The **winner** is the exchange with the **lowest** `total_cost_bps` for a fully-
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/assets` | List all supported assets and which exchanges support them |
-| `POST` | `/api/compare` | Compare all exchanges (JSON body: `asset`, `order_size`, `order_type`, `direction`) |
-| `GET` | `/api/compare/<asset>` | Same as POST but via query params: `?size=1000000&order_type=taker&direction=long` |
-| `WS` | `compare` event | WebSocket equivalent of the POST compare |
-
-### Example
+| `GET` | `/api/assets` | List supported assets + exchange availability |
+| `POST` | `/api/compare` | Compare all exchanges (body: `asset`, `order_size`, `order_type`, `direction`) |
+| `GET` | `/api/compare/<asset>` | Same via query params: `?size=1000000&order_type=taker&direction=long` |
+| `WS` | `compare` event | WebSocket equivalent of POST compare |
 
 ```bash
+# Example
 curl "http://localhost:5001/api/compare/USDJPY?size=1000000&order_type=taker&direction=long"
 ```
 
@@ -241,21 +225,25 @@ curl "http://localhost:5001/api/compare/USDJPY?size=1000000&order_type=taker&dir
 
 ```bash
 pip install -r requirements.txt
-python app.py
+python app.py          # starts on port 5001 (override: PORT env var)
 ```
-
-Server starts on port `5001` by default (overridable via `PORT` env var).
 
 ## Deploying to Railway
 
-1. Push this folder to a GitHub repository
-2. Create a new Railway project → **Deploy from GitHub repo**
-3. Railway auto-detects `requirements.txt` and `Procfile`
-4. Add your environment variables in Railway's **Variables** tab (copy from `.env`)
-5. Railway generates a public URL — plug it into your frontend
+1. Push to GitHub
+2. **New Project** → Deploy from GitHub repo
+3. Railway auto-detects `requirements.txt` + `Procfile`
+4. Add secrets in Railway **Variables** tab (copy from `.env`)
+5. Use generated public URL in your frontend
 
-The `Procfile` runs:
-```
-web: gunicorn -k eventlet -w 1 app:app
-```
-`eventlet` is required for WebSocket (SocketIO) support in production.
+> `Procfile`: `web: gunicorn -k eventlet -w 1 app:app`  
+> `eventlet` is required for WebSocket (SocketIO) support in production.
+
+## Environment Variables
+
+| Variable | Used by |
+|---|---|
+| `ASTER_API_KEY` | Aster fee fetching |
+| `ASTER_SECRET_KEY` | Aster fee fetching |
+| `EXTENDED_API_KEY` | Extended orderbook + fees |
+| `PORT` | Server port (default `5001`) |

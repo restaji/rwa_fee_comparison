@@ -238,34 +238,10 @@ class HyperliquidAPI:
             return None
 
     def get_orderbook(self, symbol: str, n_sig_figs: Optional[int] = None) -> Optional[Dict]:
+        """Fetch raw orderbook at the requested precision. No fallback logic here."""
         raw_symbol = self.normalize_symbol(symbol)
         coin       = raw_symbol if raw_symbol.startswith("xyz:") else f"xyz:{raw_symbol}"
-        
-        # Try requested or default precision first
-        ob = self._fetch_coin(coin, n_sig_figs)
-        if not ob or n_sig_figs is not None:
-            return ob
-            
-        # Check if default precision has enough liquidity for a standard large order ($1M)
-        # If not, fall back to nSigFigs=4 to get aggregated deep liquidity
-        try:
-            levels = ob.get('levels', [[], []])
-            bids = levels[0]
-            asks = levels[1]
-            
-            bids_usd = sum(float(b['px']) * float(b['sz']) for b in bids)
-            asks_usd = sum(float(a['px']) * float(a['sz']) for a in asks)
-            
-            if bids_usd < 1_000_000 or asks_usd < 1_000_000:
-                ob_agg = self._fetch_coin(coin, n_sig_figs=4)
-                if ob_agg:
-                    ob_agg['true_best_bid'] = float(bids[0]['px']) if bids else None
-                    ob_agg['true_best_ask'] = float(asks[0]['px']) if asks else None
-                    return ob_agg
-        except Exception:
-            pass
-            
-        return ob
+        return self._fetch_coin(coin, n_sig_figs)
 
     def normalize_orderbook(self, orderbook: Dict) -> Optional[StandardizedOrderbook]:
         """Normalize Hyperliquid orderbook to StandardizedOrderbook."""
@@ -356,41 +332,76 @@ class HyperliquidAPI:
         Cascade through orderbook precisions to find the best fill.
 
         Flow:
-          1. Max precision (None) – best price accuracy; stop if fully filled.
-          2. 4 significant figures – deeper book; use if not fully filled above.
+          1. Always fetch default (max) precision first → pin true mid price.
+          2. Try to fill the order at default precision.
+             → If fully filled: done.
+          3. If not filled: fallback to nSigFigs=4 (deeper aggregated book),
+             BUT keep mid_price anchored from step 1 for accurate slippage.
+          4. If still not filled even on nSigFigs=4: report PARTIAL — never hide it.
         """
         taker_fee_bps, maker_fee_bps = self.get_fees(symbol)
 
-        precisions_to_try = [None, 4]
+        # ── Step 1: Fetch default precision and pin true mid ─────────────────
+        raw_default = self.get_orderbook(symbol, n_sig_figs=None)
+        true_mid: Optional[float] = None
+
+        if raw_default:
+            try:
+                lvl = raw_default.get('levels', [[], []])
+                bids_def, asks_def = lvl[0], lvl[1]
+                if bids_def and asks_def:
+                    true_mid = (float(bids_def[0]['px']) + float(asks_def[0]['px'])) / 2
+            except Exception:
+                pass
+
+        # ── Step 2: Try fill at default precision ────────────────────────────
         final_result = None
+        std_default  = self.normalize_orderbook(raw_default) if raw_default else None
 
-        for n_sig in precisions_to_try:
-            raw_book = self.get_orderbook(symbol, n_sig_figs=n_sig)
-            if not raw_book:
-                continue
-
-            std_book = self.normalize_orderbook(raw_book)
-            if not std_book:
-                continue
-
+        if std_default:
             result = ExecutionCalculator.calculate_execution_cost(
-                std_book, order_size_usd, open_fee_bps=taker_fee_bps
+                std_default, order_size_usd, open_fee_bps=taker_fee_bps
             )
-
             if result:
                 final_result = result
                 final_result['fee_bps']       = taker_fee_bps
                 final_result['maker_fee_bps'] = maker_fee_bps
-                final_result['sig_figs']      = "Maximum" if n_sig is None else n_sig
+                final_result['sig_figs']      = 'Maximum'
 
-                if result['filled']:
-                    break
+        # ── Step 3: Fallback to nSigFigs=4 if not yet fully filled ───────────
+        if not final_result or not final_result.get('filled'):
+            raw_agg = self.get_orderbook(symbol, n_sig_figs=4)
+            std_agg = self.normalize_orderbook(raw_agg) if raw_agg else None
 
+            if std_agg:
+                # Anchor mid_price to the true default-precision mid
+                if true_mid is not None:
+                    std_agg = StandardizedOrderbook(
+                        bids=std_agg.bids,
+                        asks=std_agg.asks,
+                        best_bid=std_agg.best_bid,
+                        best_ask=std_agg.best_ask,
+                        mid_price=true_mid,
+                        timestamp=std_agg.timestamp,
+                    )
+
+                result_agg = ExecutionCalculator.calculate_execution_cost(
+                    std_agg, order_size_usd, open_fee_bps=taker_fee_bps
+                )
+                if result_agg:
+                    final_result = result_agg
+                    final_result['fee_bps']       = taker_fee_bps
+                    final_result['maker_fee_bps'] = maker_fee_bps
+                    final_result['sig_figs']      = 4
+                    # Step 4: if still not filled → stays as PARTIAL (executed='PARTIAL')
+
+        # ── Attach metadata ──────────────────────────────────────────────────
         if final_result:
             final_result['is_xyz']       = True
-            display_symbol               = symbol if "xyz" in str(symbol) else f"xyz:{symbol}"
+            display_symbol               = symbol if 'xyz' in str(symbol) else f'xyz:{symbol}'
             final_result['symbol']       = display_symbol
             final_result['max_leverage'] = self.get_max_leverage(symbol)
+            final_result['true_mid']     = true_mid
             funding                      = self.get_funding_fee(symbol)
             final_result.update(funding)
 
