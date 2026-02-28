@@ -366,22 +366,22 @@ class HyperliquidAPI:
                 final_result['maker_fee_bps'] = maker_fee_bps
                 final_result['sig_figs']      = 'Maximum'
 
-        # ── Step 3: Fallback to nSigFigs=4 if not yet fully filled ───────────
+        # ── Step 3: Fallback to nSigFigs=5 if not yet fully filled ───────────
         if not final_result or not final_result.get('filled'):
-            raw_agg = self.get_orderbook(symbol, n_sig_figs=4)
+            raw_agg = self.get_orderbook(symbol, n_sig_figs=5)
             std_agg = self.normalize_orderbook(raw_agg) if raw_agg else None
 
             if std_agg:
                 # Anchor mid_price to the true default-precision mid
                 if true_mid is not None:
                     std_agg = StandardizedOrderbook(
-                        bids=std_agg.bids,
-                        asks=std_agg.asks,
+                    bids=std_agg.bids,
+                    asks=std_agg.asks,
                         best_bid=std_agg.best_bid,
                         best_ask=std_agg.best_ask,
                         mid_price=true_mid,
-                        timestamp=std_agg.timestamp,
-                    )
+                    timestamp=std_agg.timestamp,
+                )
 
                 result_agg = ExecutionCalculator.calculate_execution_cost(
                     std_agg, order_size_usd, open_fee_bps=taker_fee_bps
@@ -390,7 +390,7 @@ class HyperliquidAPI:
                     final_result = result_agg
                     final_result['fee_bps']       = taker_fee_bps
                     final_result['maker_fee_bps'] = maker_fee_bps
-                    final_result['sig_figs']      = 4
+                    final_result['sig_figs']      = 5
                     # Step 4: if still not filled → stays as PARTIAL (executed='PARTIAL')
 
         # ── Attach metadata ──────────────────────────────────────────────────
