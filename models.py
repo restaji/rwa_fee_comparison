@@ -34,34 +34,38 @@ class AssetConfig:
     lighter_market_id: Optional[int]
     aster_symbol: Optional[str]
     ostium_symbol: Optional[str]
-    extended_symbol: Optional[str] = None  # Extended Exchange (Starknet)
+    extended_symbol: Optional[str] = None   # Extended Exchange (Starknet)
+    edgex_contract_id: Optional[int] = None # EdgeX contract ID
+    edgex_symbol: Optional[str] = None      # EdgeX display symbol override (if different from symbol_key)
+    grvt_instrument: Optional[str] = None   # GRVT instrument name (e.g. XAU_USDT_Perp)
 
 
 ASSETS: Dict[str, AssetConfig] = {
-    # Commodities
-    'XAU':    AssetConfig('XAU/USD',  'XAU',    'commodity', 'GOLD',  92,  'XAUUSDT',  'XAUUSD',  'XAU-USD'),
-    'XAG':    AssetConfig('XAG/USD',  'XAG',    'commodity', 'SILVER',93,  'XAGUSDT',  'XAGUSD',  'XAG-USD'),
+    # Commodities                                                                                     
+    'XAU':    AssetConfig('XAU/USD',  'XAU',    'commodity', 'GOLD',  92,  'XAUUSDT',  'XAUUSD',  'XAU-USD',    10000234, 'XAUT',       'XAU_USDT_Perp'),
+    'XAG':    AssetConfig('XAG/USD',  'XAG',    'commodity', 'SILVER',93,  'XAGUSDT',  'XAGUSD',  'XAG-USD',    10000278, 'SILVERUSDT', 'XAG_USDT_Perp'),
+    # 'WTI':  AssetConfig('WTI/USD',  'WTI',    'commodity', 'flx:OIL', 145, None,     'CLUSD',   None,         None),
 
     # Forex
-    'EURUSD': AssetConfig('EUR/USD',  'EURUSD', 'forex',     'EUR',   96,  None,       'EURUSD',  'EUR-USD'),
-    'GBPUSD': AssetConfig('GBP/USD',  'GBPUSD', 'forex',     'GBP',   97,  None,       'GBPUSD',  None),
-    'USDJPY': AssetConfig('USD/JPY',  'USDJPY', 'forex',     'JPY',   98,  None,       'USDJPY',  'USDJPY-USD'),
+    'EURUSD': AssetConfig('EUR/USD',  'EURUSD', 'forex',     'EUR',   96,  None,       'EURUSD',  'EUR-USD',    None),
+    'GBPUSD': AssetConfig('GBP/USD',  'GBPUSD', 'forex',     'GBP',   97,  None,       'GBPUSD',  None,         None),
+    'USDJPY': AssetConfig('USD/JPY',  'USDJPY', 'forex',     'JPY',   98,  None,       'USDJPY',  'USDJPY-USD', None),
 
-    # MAG7 Stocks
-    'AAPL':   AssetConfig('AAPL/USD', 'AAPL',   'stock',     'AAPL',  113, 'AAPLUSDT', 'AAPLUSD', None),
-    'MSFT':   AssetConfig('MSFT/USD', 'MSFT',   'stock',     'MSFT',  115, 'MSFTUSDT', 'MSFTUSD', None),
-    'GOOG':   AssetConfig('GOOG/USD', 'GOOG',   'stock',     'GOOGL', 116, 'GOOGUSDT', 'GOOGUSD', None),
-    'AMZN':   AssetConfig('AMZN/USD', 'AMZN',   'stock',     'AMZN',  114, 'AMZNUSDT', 'AMZNUSD', None),
-    'META':   AssetConfig('META/USD', 'META',   'stock',     'META',  117, 'METAUSDT', 'METAUSD', None),
-    'NVDA':   AssetConfig('NVDA/USD', 'NVDA',   'stock',     'NVDA',  110, 'NVDAUSDT', 'NVDAUSD', None),
-    'TSLA':   AssetConfig('TSLA/USD', 'TSLA',   'stock',     'TSLA',  112, 'TSLAUSDT', 'TSLAUSD', None),
+    # MAG7 Stocks                                                                                     
+    'AAPL':   AssetConfig('AAPL/USD', 'AAPL',   'stock',     'AAPL',  113, 'AAPLUSDT', 'AAPLUSD', None,         10000275),
+    'MSFT':   AssetConfig('MSFT/USD', 'MSFT',   'stock',     'MSFT',  115, 'MSFTUSDT', 'MSFTUSD', None,         None),
+    'GOOG':   AssetConfig('GOOG/USD', 'GOOG',   'stock',     'GOOGL', 116, 'GOOGUSDT', 'GOOGUSD', None,         10000280),
+    'AMZN':   AssetConfig('AMZN/USD', 'AMZN',   'stock',     'AMZN',  114, 'AMZNUSDT', 'AMZNUSD', None,         10000281),
+    'META':   AssetConfig('META/USD', 'META',   'stock',     'META',  117, 'METAUSDT', 'METAUSD', None,         10000290),
+    'NVDA':   AssetConfig('NVDA/USD', 'NVDA',   'stock',     'NVDA',  110, 'NVDAUSDT', 'NVDAUSD', None,         10000272),
+    'TSLA':   AssetConfig('TSLA/USD', 'TSLA',   'stock',     'TSLA',  112, 'TSLAUSDT', 'TSLAUSD', None,         10000273, None,         'TSLA_USDT_Perp'),
 
     # Indices
-    'SPY':    AssetConfig('SPY/USD',  'SPY',    'index',     None,    128, None,       'SPYUSD',  None),
-    'QQQ':    AssetConfig('QQQ/USD',  'QQQ',    'index',     None,    129, 'QQQUSDT',  'QQQUSD',  None),
+    'SPY':    AssetConfig('SPY/USD',  'SPY',    'index',     None,    128, None,       'SPYUSD',  None,         10000248),
+    'QQQ':    AssetConfig('QQQ/USD',  'QQQ',    'index',     None,    129, 'QQQUSDT',  'QQQUSD',  None,         10000249),
 
     # Other
-    'COIN':   AssetConfig('COIN/USD', 'COIN',   'stock',     'COIN',  109, 'COINUSDT', 'COINUSD', None),
+    'COIN':   AssetConfig('COIN/USD', 'COIN',   'stock',     'COIN',  109, 'COINUSDT', 'COINUSD', None,         10000274),
 }
 
 

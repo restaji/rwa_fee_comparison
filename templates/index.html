@@ -358,8 +358,8 @@
 
                 // Show Max Leverage for Winner
                 const winnerLeverage = document.getElementById('winner-leverage');
-                if (wd.max_leverage) {
-                    winnerLeverage.textContent = `Max Lev: ${wd.max_leverage}x`;
+                if (wd.max_leverage != null) {
+                    winnerLeverage.textContent = `Max Lev: ${parseFloat(Number(wd.max_leverage).toFixed(2))}x`;
                     winnerLeverage.style.display = 'inline-block';
                 } else {
                     winnerLeverage.style.display = 'none';
@@ -453,7 +453,7 @@
                         <span class="exchange-name">${cfg.name}</span>
                         ${symbolHtml}
                     </div>
-                    ${exData.max_leverage ? `<span class="leverage-tag" style="background: ${cfg.color}20; color: ${cfg.color}; border: 1px solid ${cfg.color}40;">${exData.max_leverage}x</span>` : ''}
+                    ${exData.max_leverage != null ? `<span class="leverage-tag" style="background: ${cfg.color}20; color: ${cfg.color}; border: 1px solid ${cfg.color}40;">${parseFloat(Number(exData.max_leverage).toFixed(2))}x</span>` : ''}
                     ${exchange === winner ? '<span class="winner-tag">Winner</span>' : ''}
                 </div>
                 <div class="card-body">

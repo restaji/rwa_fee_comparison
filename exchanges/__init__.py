@@ -7,6 +7,8 @@ from .aster       import AsterAPI
 from .avantis     import AvantisAPI
 from .ostium      import OstiumAPI
 from .extended    import ExtendedAPI
+from .edgex       import EdgeXAPI
+from .grvt        import GRVTAPI
 
 __all__ = [
     "HyperliquidAPI",
@@ -15,4 +17,6 @@ __all__ = [
     "AvantisAPI",
     "OstiumAPI",
     "ExtendedAPI",
+    "EdgeXAPI",
+    "GRVTAPI",
 ]

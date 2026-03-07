@@ -30,6 +30,7 @@ ENV/
 env/
 .env.local
 .env.*.local
+.env.*
 
 # ===========================================================================
 # Secrets / Environment Variables
