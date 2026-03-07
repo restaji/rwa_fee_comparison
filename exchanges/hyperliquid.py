@@ -27,13 +27,17 @@ class HyperliquidAPI:
         self.headers  = {'Content-Type': 'application/json'}
 
         self.max_leverages_cache: Dict = {}
-        self.growth_mode_cache:   Dict = {}   # asset -> bool
+        self.growth_mode_cache:   Dict = {}   # asset -> either 'enabled' or 'disabled'
         self.fee_cache:           Dict = {}   # asset -> (taker_bps, maker_bps)
-        self.funding_cache:       Dict = {}   # asset -> funding_1h (fraction)
+        self.funding_cache:       Dict = {}   # asset -> funding_1h in hyperliquid
 
         self.deployer_fee_scale: Optional[float] = None
         self.base_taker_rate:    Optional[float] = None
         self.base_maker_rate:    Optional[float] = None
+
+        self.flx_deployer_fee_scale: Optional[float] = None
+        self.flx_base_taker_rate:    Optional[float] = None
+        self.flx_base_maker_rate:    Optional[float] = None
 
         self.last_metadata_fetch = 0
         self.last_fee_fetch      = 0
@@ -45,6 +49,15 @@ class HyperliquidAPI:
             "XAU": "GOLD", "XAG": "SILVER",
             "EURUSD": "EUR", "USDJPY": "JPY",
         }
+
+    def _is_flx_symbol(self, symbol: str) -> bool:
+        """True if this symbol is on the flx dex (e.g. flx:OIL-USDH), not xyz."""
+        return symbol.startswith("flx:")
+
+    def _resolve_flx_coin(self, symbol: str) -> str:
+        """Ensure symbol is in flx:COIN format for API calls."""
+        plain = symbol.replace("flx:", "") if symbol.startswith("flx:") else symbol
+        return f"flx:{plain}"
 
     # ------------------------------------------------------------------
     # Fees
@@ -59,10 +72,12 @@ class HyperliquidAPI:
             payload  = {"type": "perpDexs"}
             response = requests.post(self.base_url, json=payload, headers=self.headers, timeout=30)
             if response.status_code == 200:
-                for dex in response.json():
+                dexes = response.json()
+                for dex in dexes:
                     if dex and dex.get("name") == "xyz":
                         self.deployer_fee_scale = float(dex.get("deployerFeeScale", 1.0))
-                        break
+                    elif dex and dex.get("name") == "flx":
+                        self.flx_deployer_fee_scale = float(dex.get("deployerFeeScale", 1.0))
 
             # 2. Base fee rates from userFees API (public zero-address)
             payload  = {"type": "userFees", "user": "0x0000000000000000000000000000000000000001", "dex": "xyz"}
@@ -72,19 +87,32 @@ class HyperliquidAPI:
                 self.base_taker_rate = float(fees.get("userCrossRate", 0.00045))
                 self.base_maker_rate = float(fees.get("userAddRate",   0.00015))
 
+            payload  = {"type": "userFees", "user": "0x0000000000000000000000000000000000000001", "dex": "flx"}
+            response = requests.post(self.base_url, json=payload, headers=self.headers, timeout=30)
+            if response.status_code == 200:
+                fees = response.json()
+                self.flx_base_taker_rate = float(fees.get("userCrossRate", 0.00045))
+                self.flx_base_maker_rate = float(fees.get("userAddRate",   0.00015))
+
             self.last_fee_fetch = time.time()
         except Exception as e:
             print(f"Error fetching HL fee config: {e}")
 
     def _fetch_metadata(self):
-        """Fetch metadata to get max leverage and growth mode info."""
+        """Fetch metadata to get max leverage and growth mode info (xyz and flx)."""
         if time.time() - self.last_metadata_fetch < self.metadata_cache_ttl and self.max_leverages_cache:
             return
 
         try:
-            payload  = {"type": "metaAndAssetCtxs", "dex": "xyz"}
-            response = requests.post(self.base_url, json=payload, headers=self.headers, timeout=30)
-            if response.status_code == 200:
+            self.max_leverages_cache = {}
+            self.growth_mode_cache   = {}
+            self.funding_cache       = {}
+
+            for dex_name in ("xyz", "flx"):
+                payload  = {"type": "metaAndAssetCtxs", "dex": dex_name}
+                response = requests.post(self.base_url, json=payload, headers=self.headers, timeout=30)
+                if response.status_code != 200:
+                    continue
                 data     = response.json()
                 universe = []
                 asset_ctxs = []
@@ -94,10 +122,6 @@ class HyperliquidAPI:
                 elif isinstance(data, dict):
                     universe = data.get("universe", [])
 
-                self.max_leverages_cache = {}
-                self.growth_mode_cache   = {}
-                self.funding_cache       = {}
-
                 for i, item in enumerate(universe):
                     name        = item.get("name")
                     max_lev     = item.get("maxLeverage")
@@ -105,14 +129,14 @@ class HyperliquidAPI:
                     funding_1h  = float(asset_ctxs[i].get("funding", 0)) if i < len(asset_ctxs) else 0.0
 
                     if name:
-                        stripped = name.replace("xyz:", "") if name.startswith("xyz:") else name
-                        prefixed = f"xyz:{name}" if not name.startswith("xyz:") else name
+                        stripped = name.replace(f"{dex_name}:", "") if name.startswith(f"{dex_name}:") else name
+                        prefixed = f"{dex_name}:{name}" if not name.startswith(f"{dex_name}:") else name
                         for key in (name, stripped, prefixed):
                             self.max_leverages_cache[key] = max_lev
                             self.growth_mode_cache[key]   = growth_mode == "enabled"
                             self.funding_cache[key]       = funding_1h
 
-                self.last_metadata_fetch = time.time()
+            self.last_metadata_fetch = time.time()
         except Exception as e:
             print(f"Error fetching HL metadata: {e}")
 
@@ -126,8 +150,13 @@ class HyperliquidAPI:
         self._fetch_fee_config()
         self._fetch_metadata()
 
-        search_symbol = symbol if symbol.startswith("xyz:") else f"xyz:{symbol}"
-        plain_symbol  = symbol.replace("xyz:", "") if symbol.startswith("xyz:") else symbol
+        is_flx = self._is_flx_symbol(symbol)
+        if is_flx:
+            search_symbol = self._resolve_flx_coin(symbol)  # e.g. flx:OIL-USDH -> flx:OIL
+            plain_symbol  = search_symbol.replace("flx:", "")
+        else:
+            search_symbol = symbol if symbol.startswith("xyz:") else f"xyz:{symbol}"
+            plain_symbol  = symbol.replace("xyz:", "") if symbol.startswith("xyz:") else symbol
 
         if search_symbol in self.fee_cache:
             return self.fee_cache[search_symbol]
@@ -135,9 +164,14 @@ class HyperliquidAPI:
         growth_enabled   = self.growth_mode_cache.get(search_symbol,
                            self.growth_mode_cache.get(plain_symbol, True))
 
-        deployer_fee_scale = self.deployer_fee_scale if self.deployer_fee_scale is not None else 1.0
-        base_taker         = self.base_taker_rate    if self.base_taker_rate    is not None else 0.00045
-        base_maker         = self.base_maker_rate    if self.base_maker_rate    is not None else 0.00015
+        if is_flx:
+            deployer_fee_scale = self.flx_deployer_fee_scale if self.flx_deployer_fee_scale is not None else 1.0
+            base_taker         = self.flx_base_taker_rate    if self.flx_base_taker_rate    is not None else 0.00045
+            base_maker         = self.flx_base_maker_rate     if self.flx_base_maker_rate     is not None else 0.00015
+        else:
+            deployer_fee_scale = self.deployer_fee_scale if self.deployer_fee_scale is not None else 1.0
+            base_taker         = self.base_taker_rate    if self.base_taker_rate    is not None else 0.00045
+            base_maker         = self.base_maker_rate    if self.base_maker_rate    is not None else 0.00015
 
         scale_if_hip3 = (deployer_fee_scale + 1) if deployer_fee_scale < 1 else (deployer_fee_scale * 2)
         growth_scale  = HYPERLIQUID_GROWTH_MODE_SCALE if growth_enabled else HYPERLIQUID_NO_GROWTH_MODE_SCALE
@@ -162,6 +196,9 @@ class HyperliquidAPI:
     # ------------------------------------------------------------------
     def get_max_leverage(self, symbol: str) -> Optional[float]:
         self._fetch_metadata()
+        if self._is_flx_symbol(symbol):
+            key = self._resolve_flx_coin(symbol)  # flx:OIL-USDH -> flx:OIL
+            return self.max_leverages_cache.get(key)
         return self.max_leverages_cache.get(f"xyz:{symbol}")
 
     # ------------------------------------------------------------------
@@ -179,12 +216,17 @@ class HyperliquidAPI:
         Positive = longs pay shorts; negative = shorts pay longs.
         """
         self._fetch_metadata()
-        xyz_name = self._resolve_xyz_name(symbol)
-        funding_1h_raw = (
-            self.funding_cache.get(f"xyz:{xyz_name}")
-            or self.funding_cache.get(xyz_name)
-            or 0.0
-        )
+        if self._is_flx_symbol(symbol):
+            key = self._resolve_flx_coin(symbol)
+            plain = key.replace("flx:", "")
+            funding_1h_raw = self.funding_cache.get(key) or self.funding_cache.get(plain) or 0.0
+        else:
+            xyz_name = self._resolve_xyz_name(symbol)
+            funding_1h_raw = (
+                self.funding_cache.get(f"xyz:{xyz_name}")
+                or self.funding_cache.get(xyz_name)
+                or 0.0
+            )
         holding_1h_pct  = funding_1h_raw * 100
         holding_24h_pct = math.floor(holding_1h_pct * 24 * 1_000_000) / 1_000_000
         return {
@@ -196,6 +238,8 @@ class HyperliquidAPI:
     # Orderbook
     # ------------------------------------------------------------------
     def normalize_symbol(self, symbol: str) -> str:
+        if symbol.startswith("flx:"):
+            return symbol
         s = symbol.upper()
         if s == "NDX":
             return "kPW"
@@ -240,7 +284,10 @@ class HyperliquidAPI:
     def get_orderbook(self, symbol: str, n_sig_figs: Optional[int] = None) -> Optional[Dict]:
         """Fetch raw orderbook at the requested precision. No fallback logic here."""
         raw_symbol = self.normalize_symbol(symbol)
-        coin       = raw_symbol if raw_symbol.startswith("xyz:") else f"xyz:{raw_symbol}"
+        if self._is_flx_symbol(raw_symbol):
+            coin = self._resolve_flx_coin(raw_symbol)  # flx:OIL-USDH -> flx:OIL
+        else:
+            coin = raw_symbol if raw_symbol.startswith("xyz:") else f"xyz:{raw_symbol}"
         return self._fetch_coin(coin, n_sig_figs)
 
     def normalize_orderbook(self, orderbook: Dict) -> Optional[StandardizedOrderbook]:
@@ -395,8 +442,12 @@ class HyperliquidAPI:
 
         # ── Attach metadata ──────────────────────────────────────────────────
         if final_result:
-            final_result['is_xyz']       = True
-            display_symbol               = symbol if 'xyz' in str(symbol) else f'xyz:{symbol}'
+            is_flx = self._is_flx_symbol(symbol)
+            final_result['is_xyz']       = not is_flx
+            if is_flx:
+                display_symbol = symbol if symbol.startswith("flx:") else f"flx:{symbol}"
+            else:
+                display_symbol = symbol if 'xyz' in str(symbol) else f'xyz:{symbol}'
             final_result['symbol']       = display_symbol
             final_result['max_leverage'] = self.get_max_leverage(symbol)
             final_result['true_mid']     = true_mid

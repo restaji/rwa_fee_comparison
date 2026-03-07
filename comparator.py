@@ -16,6 +16,8 @@ from exchanges.aster        import AsterAPI
 from exchanges.avantis      import AvantisAPI
 from exchanges.ostium       import OstiumAPI
 from exchanges.extended     import ExtendedAPI
+from exchanges.edgex        import EdgeXAPI
+from exchanges.grvt         import GRVTAPI
 
 
 class FeeComparator:
@@ -26,6 +28,8 @@ class FeeComparator:
         self.avantis     = AvantisAPI()
         self.ostium      = OstiumAPI()
         self.extended    = ExtendedAPI()
+        self.edgex       = EdgeXAPI()
+        self.grvt        = GRVTAPI()
 
     def compare_asset(
         self,
@@ -59,6 +63,8 @@ class FeeComparator:
             'avantis':       None,
             'ostium':        None,
             'extended':      None,
+            'edgex':         None,
+            'grvt':          None,
             'symbols': {
                 'hyperliquid': config.hyperliquid_symbol,
                 'lighter':     config.symbol_key if config.lighter_market_id else None,
@@ -66,15 +72,21 @@ class FeeComparator:
                 'avantis':     config.symbol_key,
                 'ostium':      config.ostium_symbol,
                 'extended':    config.extended_symbol,
+                'edgex':       (config.edgex_symbol or config.symbol_key) if config.edgex_contract_id else None,
+                'grvt':        config.symbol_key if config.grvt_instrument else None,
             },
         }
 
         # --- Hyperliquid ---
         if config.hyperliquid_symbol:
-            hl_result = self.hyperliquid.get_optimal_execution(config.hyperliquid_symbol, order_size_usd)
-            if hl_result:
-                result['hyperliquid'] = hl_result
-                result['symbols']['hyperliquid'] = hl_result['symbol']
+            try:
+                hl_result = self.hyperliquid.get_optimal_execution(config.hyperliquid_symbol, order_size_usd)
+                if hl_result:
+                    result['hyperliquid'] = hl_result
+                    result['symbols']['hyperliquid'] = hl_result.get('symbol') or config.hyperliquid_symbol
+            except Exception as e:
+                print(f"Hyperliquid get_optimal_execution error for {config.hyperliquid_symbol}: {e}")
+                result['hyperliquid'] = None
 
         # --- Lighter ---
         if config.lighter_market_id:
@@ -96,7 +108,7 @@ class FeeComparator:
         is_long = (direction.lower() == 'long')
         av      = self.avantis.calculate_cost(asset_key, order_size_usd, is_long=is_long)
         if av:
-            av['symbol'] = config.symbol_key
+            av['symbol'] = av.get('symbol') or config.symbol_key
         result['avantis'] = av
 
         # --- Ostium ---
@@ -114,9 +126,20 @@ class FeeComparator:
                 ex['symbol'] = config.extended_symbol
             result['extended'] = ex
 
+        # --- EdgeX ---
+        if config.edgex_contract_id:
+            edgex_sym = config.edgex_symbol or config.symbol_key
+            ex = self.edgex.calculate_execution_cost(config.edgex_contract_id, order_size_usd, direction=direction, symbol=edgex_sym)
+            result['edgex'] = ex
+
+        # --- GRVT ---
+        if config.grvt_instrument:
+            grvt_r = self.grvt.calculate_execution_cost(config.grvt_instrument, order_size_usd, direction=direction, symbol=config.symbol_key)
+            result['grvt'] = grvt_r
+
         # Maker order override: zero slippage for orderbook-based exchanges
         if order_type == 'maker':
-            for name in ['hyperliquid', 'lighter', 'aster', 'extended']:
+            for name in ['hyperliquid', 'lighter', 'aster', 'extended', 'edgex', 'grvt']:
                 ex_data = result.get(name)
                 if ex_data:
                     ex_data['slippage_bps']      = 0.0
@@ -149,10 +172,12 @@ class FeeComparator:
         exchanges = []
 
         # Fetch fees dynamically
-        lighter_taker,  lighter_maker  = self.lighter.get_fees(config.lighter_market_id)  if config.lighter_market_id  else (None, None)
-        aster_taker,    aster_maker    = self.aster.get_fees(config.aster_symbol)          if config.aster_symbol       else (None, None)
-        extended_taker, extended_maker = self.extended.get_fees(config.extended_symbol)    if config.extended_symbol    else (None, None)
-        hl_taker,       hl_maker       = self.hyperliquid.get_fees(config.hyperliquid_symbol) if config.hyperliquid_symbol else (None, None)
+        lighter_taker,  lighter_maker  = self.lighter.get_fees(config.lighter_market_id)     if config.lighter_market_id   else (None, None)
+        aster_taker,    aster_maker    = self.aster.get_fees(config.aster_symbol)             if config.aster_symbol        else (None, None)
+        extended_taker, extended_maker = self.extended.get_fees(config.extended_symbol)       if config.extended_symbol     else (None, None)
+        hl_taker,       hl_maker       = self.hyperliquid.get_fees(config.hyperliquid_symbol) if config.hyperliquid_symbol  else (None, None)
+        edgex_taker,    edgex_maker    = self.edgex.get_fees(config.edgex_contract_id)        if config.edgex_contract_id   else (None, None)
+        grvt_taker,     grvt_maker     = self.grvt.get_fees(config.grvt_instrument)           if config.grvt_instrument      else (None, None)
 
         if order_type == 'maker':
             fee_structure = {
@@ -160,6 +185,8 @@ class FeeComparator:
                 'lighter':     {'open': lighter_maker,  'close': lighter_maker},
                 'aster':       {'open': aster_maker,    'close': aster_maker},
                 'extended':    {'open': extended_maker, 'close': extended_maker},
+                'edgex':       {'open': edgex_maker,    'close': edgex_maker},
+                'grvt':        {'open': grvt_maker,     'close': grvt_maker},
             }
         else:
             fee_structure = {
@@ -167,6 +194,8 @@ class FeeComparator:
                 'lighter':     {'open': lighter_taker,  'close': lighter_taker},
                 'aster':       {'open': aster_taker,    'close': aster_taker},
                 'extended':    {'open': extended_taker, 'close': extended_taker},
+                'edgex':       {'open': edgex_taker,    'close': edgex_taker},
+                'grvt':        {'open': grvt_taker,     'close': grvt_taker},
             }
 
         os_data = result.get('ostium')
@@ -179,7 +208,7 @@ class FeeComparator:
 
         # Standardize opening/closing slippage by direction
         is_long = (direction == 'long')
-        for name in ['hyperliquid', 'lighter', 'aster', 'ostium', 'extended']:
+        for name in ['hyperliquid', 'lighter', 'aster', 'ostium', 'extended', 'edgex', 'grvt']:
             ex_data = result.get(name)
             if ex_data:
                 buy_slip  = ex_data.get('buy_slippage_bps',  0.0)
@@ -189,7 +218,7 @@ class FeeComparator:
                 ex_data['slippage_type']         = 'opening_closing'
 
         # Calculate totals and collect for winner ranking
-        for name in ['hyperliquid', 'lighter', 'aster', 'avantis', 'ostium', 'extended']:
+        for name in ['hyperliquid', 'lighter', 'aster', 'avantis', 'ostium', 'extended', 'edgex', 'grvt']:
             ex_data = result.get(name)
             if ex_data:
                 fees           = fee_structure.get(name, {'open': 0, 'close': 0})

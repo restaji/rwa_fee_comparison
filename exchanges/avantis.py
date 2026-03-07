@@ -23,7 +23,7 @@ class AvantisAPI:
     DUMMY_TRADER = "0x1234567890123456789012345678901234567890"
 
     PAIRS = {
-        "XAU": 21, "XAG": 20,
+        "XAU": 21, "XAG": 20, "WTI": 65,  
         "EURUSD": 11, "GBPUSD": 13, "USDJPY": 12,
         "SPY": 78, "QQQ": 79,
         "NVDA": 81, "TSLA": 86, "AAPL": 82, "MSFT": 84,
@@ -126,6 +126,7 @@ class AvantisAPI:
         max_lev = leverages.get("maxLeverage")
 
         return {
+            'symbol':               asset_key,
             'max_leverage':         max_lev,
             'executed':             True if filled else 'PARTIAL',
             'mid_price':            0,

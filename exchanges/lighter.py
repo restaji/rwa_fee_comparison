@@ -43,11 +43,11 @@ class LighterAPI:
                 for m in markets:
                     market_id = m.get('market_id')
                     if market_id is not None:
-                        # Fees are in percentage format (e.g. "0.0005" = 0.05%)
+                        key = int(market_id) if isinstance(market_id, (int, float)) else market_id
                         taker       = float(m.get('taker_fee', '0')) * 100   # → bps
                         maker       = float(m.get('maker_fee', '0')) * 100
                         min_margin  = m.get('min_initial_margin_fraction')
-                        self.market_cache[market_id] = {
+                        self.market_cache[key] = {
                             'taker_fee_bps':             taker,
                             'maker_fee_bps':             maker,
                             'min_initial_margin_fraction': float(min_margin) if min_margin else None,
@@ -56,10 +56,17 @@ class LighterAPI:
         except Exception as e:
             print(f"Error loading Lighter market cache: {e}")
 
+    def _market_key(self, market_id: Optional[int]) -> Optional[int]:
+        """Normalize market_id to int for cache lookup."""
+        if market_id is None:
+            return None
+        return int(market_id) if isinstance(market_id, (int, float)) else market_id
+
     def get_fees(self, market_id: int) -> Tuple[Optional[float], Optional[float]]:
         """Get taker and maker fees for a market_id."""
         self._load_market_cache()
-        market_data = self.market_cache.get(market_id)
+        key = self._market_key(market_id)
+        market_data = self.market_cache.get(key) if key is not None else None
         if not market_data:
             return (None, None)
         return (market_data.get('taker_fee_bps'), market_data.get('maker_fee_bps'))
@@ -67,13 +74,15 @@ class LighterAPI:
     def get_max_leverage(self, market_id: int) -> Optional[float]:
         """
         Get max leverage calculated from min_initial_margin_fraction.
-        max_leverage = 10000 / min_initial_margin_fraction
+        max_leverage = 10000 / min_initial_margin_fraction. Rounded to 2 decimals for display.
         """
         self._load_market_cache()
-        market_data = self.market_cache.get(market_id, {})
+        key = self._market_key(market_id)
+        market_data = self.market_cache.get(key, {}) if key is not None else {}
         min_margin  = market_data.get('min_initial_margin_fraction')
         if min_margin and min_margin > 0:
-            return 10000 / min_margin
+            lev = 10000 / min_margin
+            return round(lev, 2)
         return None
 
     # ------------------------------------------------------------------
@@ -93,7 +102,8 @@ class LighterAPI:
                     mid = entry.get('market_id')
                     rate = entry.get('rate', 0)
                     if mid is not None:
-                        self.funding_cache[mid] = float(rate)
+                        key = int(mid) if isinstance(mid, (int, float)) else mid
+                        self.funding_cache[key] = float(rate)
                 self._last_funding_fetch = now
         except Exception as e:
             print(f"Error fetching Lighter funding rates: {e}")
@@ -105,7 +115,8 @@ class LighterAPI:
         Positive = longs pay shorts; negative = shorts pay longs.
         """
         self._fetch_funding_rates()
-        rate_8h_raw     = self.funding_cache.get(market_id, 0.0)
+        key = self._market_key(market_id)
+        rate_8h_raw     = self.funding_cache.get(key, 0.0) if key is not None else 0.0
         holding_8h_pct  = rate_8h_raw * 100
         holding_1h_pct  = holding_8h_pct / 8
         holding_24h_pct = math.floor(holding_8h_pct * 3 * 1_000_000) / 1_000_000
