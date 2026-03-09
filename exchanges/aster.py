@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import math
+import os
 import time
 from typing import Dict, Optional, Tuple
 from urllib.parse import urlencode
@@ -18,7 +20,7 @@ import requests
 
 from models import StandardizedOrderbook, ExecutionCalculator
 
-import os
+log = logging.getLogger(__name__)
 
 
 class AsterAPI:
@@ -86,7 +88,7 @@ class AsterAPI:
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            print(f"Aster API request failed: {e}")
+            log.exception("Aster API request failed")
             return None
 
     # ------------------------------------------------------------------
@@ -102,7 +104,7 @@ class AsterAPI:
             return (fees.get('taker_fee_bps'), fees.get('maker_fee_bps'))
 
         if not self.api_key or not self.secret_key:
-            print("Aster API credentials not configured in .env")
+            log.warning("Aster API credentials not configured in .env")
             return (None, None)
 
         try:
@@ -120,7 +122,7 @@ class AsterAPI:
             self.fee_cache[symbol] = {'taker_fee_bps': taker_bps, 'maker_fee_bps': maker_bps}
             return (taker_bps, maker_bps)
         except Exception as e:
-            print(f"Error fetching Aster fees for {symbol}: {e}")
+            log.exception("Error fetching Aster fees for %s", symbol)
             return (None, None)
 
     # ------------------------------------------------------------------
@@ -147,7 +149,7 @@ class AsterAPI:
                         self.leverage_cache_loaded[symbol] = True
                         return max_lev
         except Exception as e:
-            print(f"Error fetching Aster max leverage for {symbol}: {e}")
+            log.exception("Error fetching Aster max leverage for %s", symbol)
 
         self.leverage_cache_loaded[symbol] = True
         self.leverage_cache[symbol]        = None
@@ -189,7 +191,7 @@ class AsterAPI:
                     'holding_fee_24h_pct': holding_24h_pct,
                 }
         except Exception as e:
-            print(f"Aster holding fee error for {symbol}: {e}")
+            log.exception("Aster holding fee error for %s", symbol)
         return {'holding_fee_1h_pct': 0.0, 'holding_fee_24h_pct': 0.0}
 
     # ------------------------------------------------------------------

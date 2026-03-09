@@ -13,10 +13,13 @@ Public APIs used:
 """
 from __future__ import annotations
 
+import logging
 import time
 from typing import Dict, Optional, Tuple
 
 import requests
+
+log = logging.getLogger(__name__)
 
 from models import StandardizedOrderbook, ExecutionCalculator
 
@@ -76,7 +79,7 @@ class EdgeXAPI:
                     'contract_name': c.get('contractName', ''),
                 }
         except Exception as e:
-            print(f"EdgeX meta cache load error: {e}")
+            log.exception("EdgeX meta cache load error")
 
     def get_fees(self, contract_id: int) -> Tuple[Optional[float], Optional[float]]:
         """Return (taker_fee_bps, maker_fee_bps) for a contract."""
@@ -113,7 +116,7 @@ class EdgeXAPI:
             rate_4h = float(rows[0].get('fundingRate', 0))
             return rate_4h * self.FUNDING_INTERVALS_PER_DAY * 100  # as %
         except Exception as e:
-            print(f"EdgeX funding rate error for contractId={contract_id}: {e}")
+            log.exception("EdgeX funding rate error for contractId=%s", contract_id)
             return None
 
     # ------------------------------------------------------------------
@@ -159,7 +162,7 @@ class EdgeXAPI:
                 timestamp=time.time(),
             )
         except Exception as e:
-            print(f"EdgeX orderbook error for contractId={contract_id}: {e}")
+            log.exception("EdgeX orderbook error for contractId=%s", contract_id)
             return None
 
     # ------------------------------------------------------------------

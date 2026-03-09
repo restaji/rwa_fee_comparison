@@ -7,12 +7,15 @@ closing fee, and max leverage. Oracle-based – no traditional orderbook.
 """
 from __future__ import annotations
 
+import logging
 import math
 import time
 from decimal import Decimal
 from typing import Dict, Optional, Tuple
 
 import requests
+
+log = logging.getLogger(__name__)
 
 
 class AvantisAPI:
@@ -47,7 +50,7 @@ class AvantisAPI:
             self._group_info = data.get("groupInfo", {})
             self._last_fetch = now
         except Exception as e:
-            print(f"Avantis API error: {e}")
+            log.exception("Avantis API error")
             self._pair_data  = {}
             self._group_info = {}
 

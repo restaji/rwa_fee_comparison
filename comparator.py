@@ -7,7 +7,10 @@ comparison result with total costs and winner determination.
 """
 from __future__ import annotations
 
+import logging
 from typing import Dict, Optional
+
+log = logging.getLogger(__name__)
 
 from models import ASSETS
 from exchanges.hyperliquid import HyperliquidAPI
@@ -85,7 +88,7 @@ class FeeComparator:
                     result['hyperliquid'] = hl_result
                     result['symbols']['hyperliquid'] = hl_result.get('symbol') or config.hyperliquid_symbol
             except Exception as e:
-                print(f"Hyperliquid get_optimal_execution error for {config.hyperliquid_symbol}: {e}")
+                log.exception("Hyperliquid get_optimal_execution error for %s", config.hyperliquid_symbol)
                 result['hyperliquid'] = None
 
         # --- Lighter ---

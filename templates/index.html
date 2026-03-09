@@ -120,7 +120,7 @@
         </section>
 
         <footer class="footer">
-            <p>Hyperliquid · Lighter · Aster · Avantis · Ostium · Extended</p>
+            <p>Hyperliquid · Lighter · Aster · Avantis · Ostium · Extended · EdgeX · GRVT</p>
         </footer>
     </div>
 
@@ -188,6 +188,16 @@
                 logo: 'https://img.cryptorank.io/coins/extended1750957204091.png',
                 color: '#34d399',
                 name: 'Extended'
+            },
+            edgex: {
+                logo: 'https://img.cryptorank.io/coins/edgex1738915492498.png',
+                color: '#ff6b35',
+                name: 'EdgeX'
+            },
+            grvt: {
+                logo: 'https://img.cryptorank.io/coins/grvt1734518527544.png',
+                color: '#b8860b',
+                name: 'GRVT'
             }
         };
 
@@ -372,7 +382,7 @@
             }
 
             exchangeGrid.innerHTML = '';
-            const exchanges = ['hyperliquid', 'lighter', 'aster', 'avantis', 'ostium', 'extended'];
+            const exchanges = ['hyperliquid', 'lighter', 'aster', 'avantis', 'ostium', 'extended', 'edgex', 'grvt'];
 
             const available = exchanges
                 .filter(ex => data[ex])

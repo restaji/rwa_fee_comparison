@@ -1,0 +1,37 @@
+name: CD (rwa-comparison-api)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  push:
+    name: Build & push
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      version: ${{ steps.build.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Avantis-Labs/devops-cicd/build-push-ecr@main
+        id: build
+        with:
+          repo: avantis/rwa-comparison-api
+  deploy:
+    name: Deploy to K8S
+    needs: [push]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: Avantis-Labs/devops-cicd/deploy-version@main
+        with:
+          services: |
+            rwa-comparison-api
+          version: ${{ needs.push.outputs.version }}
+          required_pr_label: ""
+          gh_token: ${{ secrets.GH_PAT_DEPLOY }}

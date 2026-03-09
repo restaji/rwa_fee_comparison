@@ -7,11 +7,14 @@ and max leverage – all fetched dynamically from public APIs (no auth required)
 """
 from __future__ import annotations
 
+import logging
 import math
 import time
 from typing import Dict, Optional, Tuple
 
 import requests
+
+log = logging.getLogger(__name__)
 
 from models import (
     HYPERLIQUID_GROWTH_MODE_SCALE,
@@ -96,7 +99,7 @@ class HyperliquidAPI:
 
             self.last_fee_fetch = time.time()
         except Exception as e:
-            print(f"Error fetching HL fee config: {e}")
+            log.exception("Error fetching HL fee config")
 
     def _fetch_metadata(self):
         """Fetch metadata to get max leverage and growth mode info (xyz and flx)."""
@@ -138,7 +141,7 @@ class HyperliquidAPI:
 
             self.last_metadata_fetch = time.time()
         except Exception as e:
-            print(f"Error fetching HL metadata: {e}")
+            log.exception("Error fetching HL metadata")
 
     def _calculate_fees_for_asset(self, symbol: str) -> Tuple[float, float]:
         """

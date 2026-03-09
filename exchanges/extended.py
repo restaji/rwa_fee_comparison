@@ -7,12 +7,15 @@ Covers: orderbook, fees (from /user/fees API), and max leverage
 """
 from __future__ import annotations
 
+import logging
 import math
+import os
 import time
 from typing import Dict, Optional, Tuple
 
 import requests
-import os
+
+log = logging.getLogger(__name__)
 
 from models import StandardizedOrderbook, ExecutionCalculator
 
@@ -69,7 +72,7 @@ class ExtendedAPI:
             self.fee_cache[market] = {'taker_fee_bps': taker_bps, 'maker_fee_bps': maker_bps}
             return (taker_bps, maker_bps)
         except Exception as e:
-            print(f"Error fetching Extended fees for {market}: {e}")
+            log.exception("Error fetching Extended fees for %s", market)
             return (None, None)
 
     # ------------------------------------------------------------------
@@ -91,7 +94,7 @@ class ExtendedAPI:
                         self.market_cache[market]        = {'max_leverage': float(trading_config.get('maxLeverage', 0))}
                         self.market_cache_loaded[market] = True
         except Exception as e:
-            print(f"Error fetching Extended market info for {market}: {e}")
+            log.exception("Error fetching Extended market info for %s", market)
 
     def get_max_leverage(self, market: str) -> Optional[float]:
         """Get max leverage for a market."""
@@ -121,7 +124,7 @@ class ExtendedAPI:
                         'holding_fee_24h_pct': holding_24h_pct,
                     }
         except Exception as e:
-            print(f"Extended holding fee error for {market}: {e}")
+            log.exception("Extended holding fee error for %s", market)
         return {'holding_fee_1h_pct': 0.0, 'holding_fee_24h_pct': 0.0}
 
     # ------------------------------------------------------------------
@@ -136,7 +139,7 @@ class ExtendedAPI:
             data = response.json()
             return data.get('data') if data.get('status') == 'OK' else None
         except Exception as e:
-            print(f"Extended API error for {market}: {e}")
+            log.exception("Extended API error for %s", market)
             return None
 
     def normalize_orderbook(self, orderbook: Dict) -> Optional[StandardizedOrderbook]:

@@ -21,6 +21,7 @@ Instrument naming convention: {BASE}_USDT_Perp  (e.g. XAU_USDT_Perp)
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import Dict, Optional, Tuple
@@ -31,6 +32,7 @@ from dotenv import load_dotenv
 from models import StandardizedOrderbook, ExecutionCalculator
 
 load_dotenv()
+log = logging.getLogger(__name__)
 
 
 class GRVTAPI:
@@ -117,7 +119,7 @@ class GRVTAPI:
                 self._maker_fee_bps = float(fm) / 100
 
         except Exception as e:
-            print(f"GRVT fee auth error: {e}")
+            log.exception("GRVT fee auth error")
 
     def _load_instrument_meta(self) -> None:
         """Load funding_interval_hours for all active perpetuals at startup."""
@@ -136,7 +138,7 @@ class GRVTAPI:
                         'funding_interval_hours': inst.get('funding_interval_hours', 8),
                     }
         except Exception as e:
-            print(f"GRVT instrument meta load error: {e}")
+            log.exception("GRVT instrument meta load error")
 
     # ------------------------------------------------------------------
     # Fees
@@ -171,7 +173,7 @@ class GRVTAPI:
             self._leverage_cache[instrument] = lev or None
             return self._leverage_cache[instrument]
         except Exception as e:
-            print(f"GRVT max leverage error for {instrument}: {e}")
+            log.exception("GRVT max leverage error for %s", instrument)
             self._leverage_cache[instrument] = None
             return None
 
@@ -205,7 +207,7 @@ class GRVTAPI:
             )
             return rate_pct * (24.0 / interval_hours)
         except Exception as e:
-            print(f"GRVT funding rate error for {instrument}: {e}")
+            log.exception("GRVT funding rate error for %s", instrument)
             return None
 
     # ------------------------------------------------------------------
@@ -249,7 +251,7 @@ class GRVTAPI:
                 timestamp=time.time(),
             )
         except Exception as e:
-            print(f"GRVT orderbook error for {instrument}: {e}")
+            log.exception("GRVT orderbook error for %s", instrument)
             return None
 
     # ------------------------------------------------------------------
@@ -275,13 +277,14 @@ class GRVTAPI:
         if not ob:
             return None
 
+        taker_fee = self._taker_fee_bps or 0.0
+
         result = ExecutionCalculator.calculate_execution_cost(
-            ob, order_size_usd, self._taker_fee_bps, self._taker_fee_bps
+            ob, order_size_usd, taker_fee, taker_fee
         )
         if not result:
             return None
 
-        # Recalculate slippage from best_ask/best_bid (not mid-price)
         best_ask = ob.best_ask
         best_bid = ob.best_bid
         buy_avg  = result.get('buy',  {}).get('avg_price', best_ask)
@@ -298,7 +301,7 @@ class GRVTAPI:
         result['opening_slippage_bps'] = buy_slip_bps  if is_long else sell_slip_bps
         result['closing_slippage_bps'] = sell_slip_bps if is_long else buy_slip_bps
         result['slippage_type']        = 'opening_closing'
-        result['total_cost_bps']       = buy_slip_bps + sell_slip_bps + self._taker_fee_bps * 2
+        result['total_cost_bps']       = buy_slip_bps + sell_slip_bps + taker_fee * 2
         result['symbol']               = symbol or instrument
 
         max_lev     = self.get_max_leverage(instrument)

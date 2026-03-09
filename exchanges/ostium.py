@@ -7,16 +7,16 @@ and dynamic spread calculation (Pade-approximation volume decay).
 """
 from __future__ import annotations
 
+import logging
 import math
 import time
-import urllib3
 from typing import Dict, Optional, Tuple
 
 import requests
 
 from models import StandardizedOrderbook, ExecutionCalculator
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+log = logging.getLogger(__name__)
 
 
 class OstiumAPI:
@@ -40,8 +40,6 @@ class OstiumAPI:
             "Content-Type": "application/json",
             "Accept":        "application/json",
         })
-        # Disable SSL verification for macOS certificate issues
-        self.session.verify = False
 
         self._blocks_per_day: Optional[float] = None
         self._blocks_per_day_fetched: float   = 0.0
@@ -196,7 +194,7 @@ class OstiumAPI:
                     # blocks_per_day is fetched live via Arbitrum RPC in get_rollover_rate_24h
 
         except Exception as e:
-            print(f"Error loading Ostium metadata from pairs API: {e}")
+            log.exception("Error loading Ostium metadata from pairs API")
 
         # 2. Load Seasons (Fee Overrides)
         try:
@@ -219,7 +217,7 @@ class OstiumAPI:
                                 cache[symbol]['fee_bps']       = new_fee_bps
                                 cache[symbol]['maker_fee_bps'] = new_fee_bps
         except Exception as e:
-            print(f"Error loading Ostium seasons data: {e}")
+            log.exception("Error loading Ostium seasons data")
 
         return cache
 
@@ -272,8 +270,8 @@ class OstiumAPI:
                     self._blocks_per_day        = (db / dt) * 86_400
                     self._blocks_per_day_fetched = now
                     return self._blocks_per_day
-        except Exception as e:
-            print(f"Ostium RPC error: {e}")
+        except Exception:
+            log.exception("Ostium RPC error")
 
         self._blocks_per_day = 345_600  # fallback ~4 blk/s
         return self._blocks_per_day
@@ -391,7 +389,7 @@ class OstiumAPI:
                 if attempt < max_retries - 1:
                     time.sleep(1)
                 else:
-                    print(f"  > Ostium error for {asset} after {max_retries} attempts: {e}")
+                    log.warning("Ostium price fetch failed for %s after %d attempts", asset, max_retries)
         return None
 
     def get_orderbook(self, symbol: str) -> Optional[Dict]:

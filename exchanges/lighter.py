@@ -7,11 +7,14 @@ Covers: orderbook, fees (from orderBookDetails API), and max leverage
 """
 from __future__ import annotations
 
+import logging
 import math
 import time
 from typing import Dict, Optional, Tuple
 
 import requests
+
+log = logging.getLogger(__name__)
 
 from models import StandardizedOrderbook, ExecutionCalculator
 
@@ -54,7 +57,7 @@ class LighterAPI:
                         }
                 self.market_cache_loaded = True
         except Exception as e:
-            print(f"Error loading Lighter market cache: {e}")
+            log.exception("Error loading Lighter market cache")
 
     def _market_key(self, market_id: Optional[int]) -> Optional[int]:
         """Normalize market_id to int for cache lookup."""
@@ -106,7 +109,7 @@ class LighterAPI:
                         self.funding_cache[key] = float(rate)
                 self._last_funding_fetch = now
         except Exception as e:
-            print(f"Error fetching Lighter funding rates: {e}")
+            log.exception("Error fetching Lighter funding rates")
 
     def get_holding_fee(self, market_id: int) -> Dict:
         """
