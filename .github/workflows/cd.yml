@@ -33,5 +33,5 @@ jobs:
           services: |
             rwa-comparison-api
           version: ${{ needs.push.outputs.version }}
-          required_pr_label: "auto-deploy"
+          required_pr_label: ""
           gh_token: ${{ secrets.GH_PAT_DEPLOY }}

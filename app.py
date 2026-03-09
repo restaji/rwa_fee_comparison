@@ -20,7 +20,7 @@ import os
 import secrets
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 
@@ -73,11 +73,6 @@ comparator = FeeComparator()
 # ---------------------------------------------------------------------------
 # REST routes
 # ---------------------------------------------------------------------------
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-
 @app.route('/api/assets', methods=['GET'])
 def get_assets():
     """Return list of available assets."""
