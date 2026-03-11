@@ -84,11 +84,10 @@ class GRVTAPI:
                 timeout=15,
             )
 
-            # Use resp.cookies (requests cookie jar) — more reliable than
-            # parsing Set-Cookie headers which Session may auto-consume
+            # Use resp.cookies to get the gravity token
             gravity_token = resp.cookies.get("gravity")
             if not gravity_token:
-                # Fallback: parse raw Set-Cookie header
+                # Fallback: parse raw Set-Cookie header to get the gravity token
                 for header, value in resp.headers.items():
                     if header.lower() == "set-cookie" and "gravity=" in value:
                         part = next(
@@ -284,6 +283,9 @@ class GRVTAPI:
         For a long:  opening = buy slippage,  closing = sell slippage.
         For a short: opening = sell slippage, closing = buy slippage.
         """
+        if self._taker_fee_bps is None:
+            self._authenticate_and_load_fees()
+
         ob = self.get_orderbook(instrument)
         if not ob:
             return None
