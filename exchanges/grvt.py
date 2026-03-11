@@ -83,25 +83,36 @@ class GRVTAPI:
                 headers={"Cookie": "rm=true;"},
                 timeout=15,
             )
-            cookie = None
-            for header, value in resp.headers.items():
-                if header.lower() == "set-cookie" and "gravity=" in value:
-                    cookie = next(
-                        (p for p in value.split(";") if p.strip().startswith("gravity=")),
-                        None,
-                    )
+
+            # Use resp.cookies (requests cookie jar) — more reliable than
+            # parsing Set-Cookie headers which Session may auto-consume
+            gravity_token = resp.cookies.get("gravity")
+            if not gravity_token:
+                # Fallback: parse raw Set-Cookie header
+                for header, value in resp.headers.items():
+                    if header.lower() == "set-cookie" and "gravity=" in value:
+                        part = next(
+                            (p for p in value.split(";") if p.strip().startswith("gravity=")),
+                            None,
+                        )
+                        if part:
+                            gravity_token = part.strip().split("=", 1)[1]
+                        break
+
             account_id = resp.headers.get("x-grvt-account-id") or resp.headers.get("X-Grvt-Account-Id")
 
-            if not cookie or not account_id:
+            if not gravity_token or not account_id:
+                print(f"GRVT auth failed: gravity={gravity_token!r} account_id={account_id!r}")
                 return
 
             self._account_id = account_id
+            cookie_header = f"gravity={gravity_token}"
 
             fee_resp = self.session.post(
                 f"{self.TRADES_URL}/funding_account_summary",
                 json={},
                 headers={
-                    "Cookie":            cookie,
+                    "Cookie":            cookie_header,
                     "X-Grvt-Account-Id": account_id,
                 },
                 timeout=15,
