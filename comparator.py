@@ -8,6 +8,7 @@ comparison result with total costs and winner determination.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Optional
 
 log = logging.getLogger(__name__)
@@ -80,65 +81,91 @@ class FeeComparator:
             },
         }
 
-        # --- Hyperliquid ---
-        if config.hyperliquid_symbol:
-            try:
-                hl_result = self.hyperliquid.get_optimal_execution(config.hyperliquid_symbol, order_size_usd)
-                if hl_result:
-                    result['hyperliquid'] = hl_result
-                    result['symbols']['hyperliquid'] = hl_result.get('symbol') or config.hyperliquid_symbol
-            except Exception as e:
-                log.exception("Hyperliquid get_optimal_execution error for %s", config.hyperliquid_symbol)
-                result['hyperliquid'] = None
-
-        # --- Lighter ---
-        if config.lighter_market_id:
-            ob     = self.lighter.get_orderbook(config.lighter_market_id)
-            lr     = self.lighter.calculate_execution_cost(ob, order_size_usd, market_id=config.lighter_market_id)
-            if lr:
-                lr['symbol'] = config.symbol_key
-            result['lighter'] = lr
-
-        # --- Aster ---
-        if config.aster_symbol:
-            ob  = self.aster.get_orderbook(config.aster_symbol)
-            ar  = self.aster.calculate_execution_cost(ob, order_size_usd, symbol=config.aster_symbol)
-            if ar:
-                ar['symbol'] = config.aster_symbol
-            result['aster'] = ar
-
-        # --- Avantis ---
         is_long = (direction.lower() == 'long')
-        av      = self.avantis.calculate_cost(asset_key, order_size_usd, is_long=is_long)
-        if av:
-            av['symbol'] = av.get('symbol') or config.symbol_key
-        result['avantis'] = av
 
-        # --- Ostium ---
-        if config.ostium_symbol:
-            os_r = self.ostium.calculate_execution_cost(config.ostium_symbol, order_size_usd)
-            if os_r:
-                os_r['symbol'] = config.ostium_symbol
-            result['ostium'] = os_r
+        def fetch_hyperliquid():
+            if not config.hyperliquid_symbol:
+                return 'hyperliquid', None, None
+            try:
+                r = self.hyperliquid.get_optimal_execution(config.hyperliquid_symbol, order_size_usd)
+                sym = (r.get('symbol') or config.hyperliquid_symbol) if r else None
+                return 'hyperliquid', r, sym
+            except Exception as e:
+                print(f"Hyperliquid error: {e}")
+                return 'hyperliquid', None, None
 
-        # --- Extended ---
-        if config.extended_symbol:
-            ob  = self.extended.get_orderbook(config.extended_symbol)
-            ex  = self.extended.calculate_execution_cost(ob, order_size_usd, market=config.extended_symbol)
-            if ex:
-                ex['symbol'] = config.extended_symbol
-            result['extended'] = ex
+        def fetch_lighter():
+            if not config.lighter_market_id:
+                return 'lighter', None
+            ob = self.lighter.get_orderbook(config.lighter_market_id)
+            r  = self.lighter.calculate_execution_cost(ob, order_size_usd, market_id=config.lighter_market_id)
+            if r:
+                r['symbol'] = config.symbol_key
+            return 'lighter', r
 
-        # --- EdgeX ---
-        if config.edgex_contract_id:
-            edgex_sym = config.edgex_symbol or config.symbol_key
-            ex = self.edgex.calculate_execution_cost(config.edgex_contract_id, order_size_usd, direction=direction, symbol=edgex_sym)
-            result['edgex'] = ex
+        def fetch_aster():
+            if not config.aster_symbol:
+                return 'aster', None
+            ob = self.aster.get_orderbook(config.aster_symbol)
+            r  = self.aster.calculate_execution_cost(ob, order_size_usd, symbol=config.aster_symbol)
+            if r:
+                r['symbol'] = config.aster_symbol
+            return 'aster', r
 
-        # --- GRVT ---
-        if config.grvt_instrument:
-            grvt_r = self.grvt.calculate_execution_cost(config.grvt_instrument, order_size_usd, direction=direction, symbol=config.symbol_key)
-            result['grvt'] = grvt_r
+        def fetch_avantis():
+            r = self.avantis.calculate_cost(asset_key, order_size_usd, is_long=is_long)
+            if r:
+                r['symbol'] = r.get('symbol') or config.symbol_key
+            return 'avantis', r
+
+        def fetch_ostium():
+            if not config.ostium_symbol:
+                return 'ostium', None
+            r = self.ostium.calculate_execution_cost(config.ostium_symbol, order_size_usd)
+            if r:
+                r['symbol'] = config.ostium_symbol
+            return 'ostium', r
+
+        def fetch_extended():
+            if not config.extended_symbol:
+                return 'extended', None
+            ob = self.extended.get_orderbook(config.extended_symbol)
+            r  = self.extended.calculate_execution_cost(ob, order_size_usd, market=config.extended_symbol)
+            if r:
+                r['symbol'] = config.extended_symbol
+            return 'extended', r
+
+        def fetch_edgex():
+            if not config.edgex_contract_id:
+                return 'edgex', None
+            sym = config.edgex_symbol or config.symbol_key
+            r   = self.edgex.calculate_execution_cost(config.edgex_contract_id, order_size_usd, direction=direction, symbol=sym)
+            return 'edgex', r
+
+        def fetch_grvt():
+            if not config.grvt_instrument:
+                return 'grvt', None
+            r = self.grvt.calculate_execution_cost(config.grvt_instrument, order_size_usd, direction=direction, symbol=config.symbol_key)
+            return 'grvt', r
+
+        tasks = [fetch_hyperliquid, fetch_lighter, fetch_aster, fetch_avantis,
+                 fetch_ostium, fetch_extended, fetch_edgex, fetch_grvt]
+
+        with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+            futures = {executor.submit(fn): fn for fn in tasks}
+            for future in as_completed(futures):
+                try:
+                    res = future.result()
+                    if res[0] == 'hyperliquid':
+                        _, r, sym = res
+                        result['hyperliquid'] = r
+                        if sym:
+                            result['symbols']['hyperliquid'] = sym
+                    else:
+                        name, r = res
+                        result[name] = r
+                except Exception as e:
+                    print(f"Exchange fetch error: {e}")
 
         # Maker order override: zero slippage for orderbook-based exchanges
         if order_type == 'maker':
